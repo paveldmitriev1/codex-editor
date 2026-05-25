@@ -299,6 +299,175 @@ def test_voice_guard_logic(r: TestResult):
                 r.fails(f"guard catches cliche: {name}", "клише не пойман")
 
 
+def test_book_reader(r: TestResult, book_id="book-12"):
+    """Book Reader + Final Polish workflow (Pavel 2026-05-25)."""
+    print(f"\n── Book Reader / Финальная Полировка ({book_id}) ──")
+    # 1. /book-reader serves HTML
+    try:
+        req = urllib.request.Request(f"{SERVER}/book-reader")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            html = resp.read(2000).decode("utf-8", errors="replace")
+        if "Книга Целиком" in html or "br-book-shell" in html or "br-note" in html:
+            r.passes("/book-reader serves HTML")
+        else:
+            r.fails("/book-reader content", f"HTML без ожидаемых маркеров")
+    except Exception as e:
+        r.fails("/book-reader route", str(e))
+        return
+
+    # 2. /api/book/full returns chapters
+    try:
+        req = urllib.request.Request(f"{SERVER}/api/book/full?book_id={book_id}")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        if data.get("ok") and len(data.get("chapters", [])) > 0:
+            r.passes(f"/api/book/full", f"{len(data['chapters'])} глав")
+        else:
+            r.fails(f"/api/book/full", f"нет глав: {data}")
+            return
+    except Exception as e:
+        r.fails("/api/book/full", str(e))
+        return
+
+    # 3. Note lifecycle: add → list → update → cleanup
+    ts_marker = f"AUTO-TEST-{int(time.time())}"
+    note_body = {
+        "book_id": book_id,
+        "chapter_id": f"{book_id}-ch-01",
+        "para_idx": 0,
+        "kind": "comment",
+        "note_text": f"тестовая заметка {ts_marker}",
+    }
+    try:
+        req = urllib.request.Request(
+            f"{SERVER}/api/book/note-add",
+            data=json.dumps(note_body).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            add_resp = json.loads(resp.read().decode("utf-8"))
+        note_id = add_resp.get("note", {}).get("note_id")
+        if note_id:
+            r.passes("note-add создал заметку", f"id={note_id}")
+        else:
+            r.fails("note-add", str(add_resp))
+            return
+    except Exception as e:
+        r.fails("note-add", str(e))
+        return
+
+    # 4. list notes — find our marker
+    try:
+        req = urllib.request.Request(f"{SERVER}/api/book/notes?book_id={book_id}")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            list_resp = json.loads(resp.read().decode("utf-8"))
+        notes = list_resp.get("notes", [])
+        ours = [n for n in notes if ts_marker in (n.get("note_text") or "")]
+        if ours:
+            r.passes("note-list находит свою заметку", f"всего={len(notes)}")
+        else:
+            r.fails("note-list", f"маркер {ts_marker} не найден среди {len(notes)} заметок")
+    except Exception as e:
+        r.fails("note-list", str(e))
+
+    # 5. mark dismissed
+    try:
+        req = urllib.request.Request(
+            f"{SERVER}/api/book/note-update",
+            data=json.dumps({"book_id": book_id, "note_id": note_id, "status": "dismissed"}).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            upd_resp = json.loads(resp.read().decode("utf-8"))
+        if upd_resp.get("ok") and upd_resp.get("status") == "dismissed":
+            r.passes("note-update dismissed")
+        else:
+            r.fails("note-update", str(upd_resp))
+    except Exception as e:
+        r.fails("note-update", str(e))
+
+    # 6. cleanup test note file (only our marker)
+    try:
+        notes_file = ROOT / "data/book-notes" / f"{book_id}.jsonl"
+        if notes_file.exists():
+            kept = []
+            for line in notes_file.read_text(encoding="utf-8").splitlines():
+                if line.strip() and ts_marker not in line:
+                    kept.append(line)
+            notes_file.write_text(("\n".join(kept) + ("\n" if kept else "")), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def test_polish_plan_validation(r: TestResult, book_id="book-12"):
+    """polish-plan не должен вызывать Opus при пустом запросе или без заметок."""
+    print("\n── polish-plan validation (без Opus) ──")
+    # 1. Missing book_id → 400
+    try:
+        req = urllib.request.Request(
+            f"{SERVER}/api/book/polish-plan",
+            data=b"{}",
+            headers={"content-type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        if data.get("error"):
+            r.passes("polish-plan без book_id отклоняет", data["error"])
+        else:
+            r.fails("polish-plan без book_id", f"должен быть error, got: {data}")
+    except urllib.error.HTTPError as e:
+        # 400 expected
+        data = json.loads(e.read().decode("utf-8"))
+        if "book_id" in (data.get("error") or "").lower():
+            r.passes("polish-plan без book_id отклоняет", "HTTP 400")
+        else:
+            r.fails("polish-plan без book_id", str(data))
+    except Exception as e:
+        r.fails("polish-plan без book_id", str(e))
+
+    # 2. book_id present but no open notes → 400 (не должен звать Opus)
+    try:
+        # сначала убедимся что нет открытых заметок (если есть — пропускаем)
+        req = urllib.request.Request(f"{SERVER}/api/book/notes?book_id={book_id}")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            notes_data = json.loads(resp.read().decode("utf-8"))
+        open_count = notes_data.get("open_count", 0)
+        if open_count > 0:
+            r.warns("polish-plan empty test", f"есть {open_count} открытых заметок, пропускаю")
+        else:
+            req = urllib.request.Request(
+                f"{SERVER}/api/book/polish-plan",
+                data=json.dumps({"book_id": book_id}).encode("utf-8"),
+                headers={"content-type": "application/json"},
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                data = json.loads(e.read().decode("utf-8"))
+            err = (data.get("error") or "").lower()
+            if "заметок" in err or "notes" in err:
+                r.passes("polish-plan без заметок не зовёт Opus", data.get("error"))
+            else:
+                r.fails("polish-plan без заметок", str(data))
+    except Exception as e:
+        r.fails("polish-plan validation", str(e))
+
+
+def test_nav_has_book_reader(r: TestResult):
+    """nav.js должен содержать пункт book-reader."""
+    print("\n── nav.js / sidebar ──")
+    nav = ROOT / "app/static/nav.js"
+    if not nav.exists():
+        r.warns("nav.js", "файл отсутствует")
+        return
+    text = nav.read_text(encoding="utf-8")
+    if '"book-reader"' in text and "/book-reader" in text:
+        r.passes("nav.js содержит пункт book-reader")
+    else:
+        r.fails("nav.js без book-reader", "Pavel не найдёт страницу")
+
+
 def test_personas_disabled(r: TestResult):
     """Pavel сказал отключить персон полностью (2026-05-25)."""
     print("\n── Persons отключены? ──")
@@ -390,6 +559,9 @@ def main():
     test_replace_paragraph_real(r, args.chapter, dry_run=args.quick)
     test_voice_guard_logic(r)
     test_personas_disabled(r)
+    test_book_reader(r, book_id="book-12")
+    test_polish_plan_validation(r, book_id="book-12")
+    test_nav_has_book_reader(r)
 
     out = write_report(r, ROOT / "reports")
     print()

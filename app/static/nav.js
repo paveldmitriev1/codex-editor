@@ -23,6 +23,7 @@
     archive:        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>',
     gavel:          '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m14.5 12.5-8 8a2.119 2.119 0 1 1-3-3l8-8"/><path d="m16 16 6-6"/><path d="m8 8 6-6"/><path d="m9 7 8 8"/><path d="m21 11-8-8"/></svg>',
     palette:        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2Z"/></svg>',
+    bookMarked:     '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v8l3-3 3 3V2"/><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>',
     panelLeftClose: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>',
     panelLeftOpen:  '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></svg>',
   };
@@ -34,6 +35,7 @@
     { id: "editor",      label: "Редактор Главы",    href: "/editor",      icon: ICON.penLine },
     { id: "critics",     label: "Критики",           href: "/critics",     icon: ICON.gavel },
     { id: "book-editor", label: "Редактор Книги",    href: "/book-editor", icon: ICON.library },
+    { id: "book-reader", label: "Книга Целиком",     href: "/book-reader", icon: ICON.bookMarked },
     { id: "storage",     label: "Хранилище",         href: "/storage",     icon: ICON.archive },
     { id: "library",     label: "Библиотека примеров", href: "/library",   icon: ICON.library },
     { id: "styles",      label: "Стили",             href: "/styles",      icon: ICON.palette },
@@ -48,6 +50,7 @@
     if (path.startsWith("/wizard")) return "wizard";
     if (path.startsWith("/critics")) return "critics";
     if (path.startsWith("/book-editor")) return "book-editor";
+    if (path.startsWith("/book-reader")) return "book-reader";
     if (path.startsWith("/journalist")) return "journalist";
     if (path.startsWith("/library")) return "library";
     if (path.startsWith("/styles")) return "styles";

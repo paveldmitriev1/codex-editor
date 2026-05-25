@@ -44,6 +44,8 @@ data/library/files/
 
 # Per-chapter analysis caches
 data/personas/
+data/book-notes/
+data/book-polish-plans/
 data/reconciled/
 data/sequence/
 data/master-audit/

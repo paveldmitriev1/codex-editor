@@ -245,6 +245,13 @@ class CodexV2Handler(http.server.BaseHTTPRequestHandler):
         # Откат всей главы к baseline
         if path == "/api/chapter/revert":
             return self._revert_chapter()
+        # Book reader + finalize: заметки на параграф + Opus план полировки
+        if path == "/api/book/note-add":
+            return self._book_note_add()
+        if path == "/api/book/note-update":
+            return self._book_note_update()
+        if path == "/api/book/polish-plan":
+            return self._book_polish_plan()
         if path == "/api/briefing/regenerate":
             """POST → пересоздать MORNING-BRIEFING.md прямо сейчас."""
             import subprocess
@@ -381,6 +388,9 @@ class CodexV2Handler(http.server.BaseHTTPRequestHandler):
 
         if path in ("/book-editor", "/book-editor.html"):
             return self._serve_file(STATIC / "book-editor.html", "text/html; charset=utf-8")
+
+        if path in ("/book-reader", "/book-reader.html"):
+            return self._serve_file(STATIC / "book-reader.html", "text/html; charset=utf-8")
 
         if path in ("/journalist", "/journalist.html"):
             return self._serve_file(STATIC / "journalist.html", "text/html; charset=utf-8")
@@ -1171,6 +1181,13 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
                     return self._json({"error": str(e)}, 500)
             return self._json({"ok": False, "error": "not yet", "status": "not_ready"}, 404)
 
+        # Book reader endpoints (GET)
+        if path == "/api/book/full":
+            return self._book_full()
+        if path == "/api/book/notes":
+            return self._book_notes_list()
+        if path == "/api/book/polish-plan":
+            return self._book_polish_plan_get()
         # ФАЗА 3 (2026-05-24): кэш мастер-аудита
         if path == "/api/chapter/master-audit":
             from urllib.parse import urlparse, parse_qs
@@ -6852,6 +6869,338 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             "total_paragraphs": len(paras),
             "backup": backup_path.name if backup_path else None,
         })
+
+    # ═══ BOOK READER + ФИНАЛЬНАЯ ПОЛИРОВКА (Pavel 2026-05-25) ═══
+    # «создай в приложении место где готовые книги будут собираться и где я
+    # смогу их читать и делать финальные заметки по всему тексту а потом
+    # финальный агент будет их внедрять и полировать финал».
+
+    def _book_full(self):
+        """GET /api/book/<book_id>/full → собирает все главы в один документ
+        с нумерованными параграфами вида {chapter_id}-P{N}."""
+        import re as _re
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+        book_id = (qs.get("book_id") or [""])[0]
+        if not book_id:
+            return self._json({"error": "book_id required"}, 400)
+        book_dir = DATA_ROOT / "chapters" / book_id
+        if not book_dir.exists():
+            return self._json({"error": f"book {book_id} not found"}, 404)
+        chapters = []
+        for ch_dir in sorted(book_dir.iterdir()):
+            if not ch_dir.is_dir() or ch_dir.name.startswith("."):
+                continue
+            if "-ch-" not in ch_dir.name:
+                continue
+            draft_file = ch_dir / "draft.md"
+            if not draft_file.exists():
+                continue
+            meta_file = ch_dir / "meta.json"
+            title = ch_dir.name
+            if meta_file.exists():
+                try:
+                    meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                    title = meta.get("title") or title
+                except Exception:
+                    pass
+            text = draft_file.read_text(encoding="utf-8")
+            paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+            chapters.append({
+                "chapter_id": ch_dir.name,
+                "title": title,
+                "paragraphs": [
+                    {"idx": i, "text": p, "anchor": f"{ch_dir.name}-P{i}"}
+                    for i, p in enumerate(paragraphs)
+                ],
+                "para_count": len(paragraphs),
+                "char_count": sum(len(p) for p in paragraphs),
+            })
+        # Книжное название из canon
+        book_title = book_id
+        canon = book_dir / "canon.json"
+        if canon.exists():
+            try:
+                book_title = (json.loads(canon.read_text(encoding="utf-8")).get("title")) or book_title
+            except Exception:
+                pass
+        # Подсчёт заметок
+        notes_file = DATA_ROOT / "data/book-notes" / f"{book_id}.jsonl"
+        notes_count = 0
+        if notes_file.exists():
+            notes_count = sum(1 for _ in notes_file.read_text(encoding="utf-8").splitlines() if _.strip())
+        return self._json({
+            "ok": True,
+            "book_id": book_id,
+            "title": book_title,
+            "chapters": chapters,
+            "chapter_count": len(chapters),
+            "total_paragraphs": sum(c["para_count"] for c in chapters),
+            "total_chars": sum(c["char_count"] for c in chapters),
+            "notes_count": notes_count,
+        })
+
+    def _book_note_add(self):
+        """POST {book_id, chapter_id, para_idx, note_text, kind?} → сохранить
+        заметку Pavel-а на конкретный параграф. kind: edit|remove|add|comment."""
+        from datetime import datetime, timezone
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+        book_id = req.get("book_id", "")
+        chapter_id = req.get("chapter_id", "")
+        para_idx = req.get("para_idx")
+        note_text = (req.get("note_text") or "").strip()
+        kind = req.get("kind", "comment")
+        if not book_id or not chapter_id or para_idx is None or not note_text:
+            return self._json({"error": "book_id, chapter_id, para_idx, note_text required"}, 400)
+        if len(note_text) < 2:
+            return self._json({"error": "заметка слишком короткая"}, 400)
+        notes_dir = DATA_ROOT / "data/book-notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        notes_file = notes_dir / f"{book_id}.jsonl"
+        ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        note_id = f"note-{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+        rec = {
+            "note_id": note_id,
+            "book_id": book_id,
+            "chapter_id": chapter_id,
+            "para_idx": int(para_idx),
+            "kind": kind,
+            "note_text": note_text,
+            "ts": ts_iso,
+            "status": "open",  # open | applied | dismissed
+        }
+        with notes_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        return self._json({"ok": True, "note": rec})
+
+    def _book_notes_list(self):
+        """GET /api/book/<book_id>/notes → список всех заметок."""
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+        book_id = (qs.get("book_id") or [""])[0]
+        if not book_id:
+            return self._json({"error": "book_id required"}, 400)
+        notes_file = DATA_ROOT / "data/book-notes" / f"{book_id}.jsonl"
+        if not notes_file.exists():
+            return self._json({"ok": True, "book_id": book_id, "notes": []})
+        notes = []
+        for line in notes_file.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                notes.append(json.loads(line))
+            except Exception:
+                continue
+        return self._json({
+            "ok": True,
+            "book_id": book_id,
+            "notes": notes,
+            "open_count": sum(1 for n in notes if n.get("status") == "open"),
+            "applied_count": sum(1 for n in notes if n.get("status") == "applied"),
+        })
+
+    def _book_note_update(self):
+        """POST {book_id, note_id, status} → пометить заметку как applied/dismissed."""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+        book_id = req.get("book_id", "")
+        note_id = req.get("note_id", "")
+        new_status = req.get("status", "open")
+        if not book_id or not note_id:
+            return self._json({"error": "book_id и note_id обязательны"}, 400)
+        notes_file = DATA_ROOT / "data/book-notes" / f"{book_id}.jsonl"
+        if not notes_file.exists():
+            return self._json({"error": "notes file not found"}, 404)
+        lines = notes_file.read_text(encoding="utf-8").splitlines()
+        updated = False
+        out_lines = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                r = json.loads(line)
+            except Exception:
+                continue
+            if r.get("note_id") == note_id:
+                r["status"] = new_status
+                updated = True
+            out_lines.append(json.dumps(r, ensure_ascii=False))
+        if not updated:
+            return self._json({"error": "note_id not found"}, 404)
+        notes_file.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+        return self._json({"ok": True, "note_id": note_id, "status": new_status})
+
+    def _book_polish_plan(self):
+        """POST {book_id} → Opus читает все open-заметки + книгу + substrate,
+        для каждой заметки предлагает конкретную правку (новый текст параграфа).
+        Pavel получает план — может применять по одной через /apply-targeted-replace."""
+        import urllib.request, re as _re
+        from datetime import datetime, timezone
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+        book_id = req.get("book_id", "")
+        if not book_id:
+            return self._json({"error": "book_id required"}, 400)
+        notes_file = DATA_ROOT / "data/book-notes" / f"{book_id}.jsonl"
+        if not notes_file.exists():
+            return self._json({"error": "no notes for this book"}, 404)
+        open_notes = []
+        for line in notes_file.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                r = json.loads(line)
+                if r.get("status") == "open":
+                    open_notes.append(r)
+            except Exception:
+                continue
+        if not open_notes:
+            return self._json({"error": "нет открытых заметок"}, 400)
+
+        # OAuth
+        env_file = Path.home() / ".cc-memory-bridge/.env"
+        token = None
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
+                    token = line.split("=", 1)[1].strip()
+                    break
+        if not token:
+            return self._json({"error": "no oauth token"}, 500)
+
+        self._active_job_register(book_id, "book-polish-plan", eta_seconds=240)
+
+        # Грузим все главы книги для контекста
+        book_dir = DATA_ROOT / "chapters" / book_id
+        chapters_context = []
+        chapters_paras = {}  # chapter_id -> list of paragraphs
+        for ch_dir in sorted(book_dir.iterdir()):
+            if not ch_dir.is_dir() or "-ch-" not in ch_dir.name:
+                continue
+            draft = ch_dir / "draft.md"
+            if not draft.exists():
+                continue
+            text = draft.read_text(encoding="utf-8")
+            paras = [p.strip() for p in text.split("\n\n") if p.strip()]
+            chapters_paras[ch_dir.name] = paras
+            chapters_context.append(f"\n## Глава {ch_dir.name}\n" + "\n\n".join(
+                f"[{i}] {p}" for i, p in enumerate(paras)
+            ))
+
+        # Substrate (берём первой главы или общий)
+        first_ch = next(iter(chapters_paras.keys()), None)
+        substrate = self._pavel_substrate(first_ch, max_total_chars=10000) if first_ch else ""
+
+        notes_text = "\n".join(
+            f"- Заметка {i+1} [{n.get('kind','comment')}] в главе {n.get('chapter_id')} параграф {n.get('para_idx')}: «{n.get('note_text')}»"
+            for i, n in enumerate(open_notes)
+        )
+
+        system = (
+            "Ты — финальный полировщик Сакрального Кодекса Pavel-а Хилингода.\n"
+            "Pavel прочёл всю книгу и оставил заметки на конкретные параграфы. "
+            "Твоя задача — для каждой заметки предложить КОНКРЕТНУЮ правку: "
+            "новый текст параграфа учитывающий желание Pavel-а.\n\n"
+            "ВАЖНО:\n"
+            "  • Каждый предложенный fix — это полный текст параграфа который заменит существующий.\n"
+            "  • Сохраняй голос Хилингода: длинные многоклаузные предложения, анафоры, без тире, без микро-предложений.\n"
+            "  • Если заметка просит УБРАТЬ параграф — fix = пустая строка, kind=remove.\n"
+            "  • Если заметка про ВСТАВИТЬ что-то новое — fix = новый параграф (вставится после указанного), kind=insert.\n"
+            "  • Иначе — fix = переписанный параграф, kind=replace.\n\n"
+            "Верни СТРОГО JSON:\n"
+            '{ "plan": [ {"note_id": "...", "chapter_id": "...", "para_idx": N, "kind": "replace|remove|insert", '
+            '"fix": "новый текст или пусто", "rationale": "почему так"} ] }\n\n'
+            "Без преамбулы.\n\n"
+            f"=== SUBSTRATE PAVEL-А ===\n\n{substrate}"
+        )
+        user = (
+            f"# КНИГА: {book_id}\n"
+            + "\n".join(chapters_context)[:30000]
+            + "\n\n# ЗАМЕТКИ PAVEL-А ({} штук):\n\n{}\n\nПострой план полировки. JSON.".format(len(open_notes), notes_text)
+        )
+        body_req = {
+            "model": "claude-opus-4-7",
+            "max_tokens": 8000,
+            "thinking": {"type": "enabled", "budget_tokens": 6000},
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+        }
+        req_obj = urllib.request.Request(
+            "http://127.0.0.1:8787/v1/messages",
+            data=json.dumps(body_req).encode("utf-8"),
+            headers={
+                "x-api-key": token,
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": "interleaved-thinking-2025-05-14",
+                "content-type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req_obj, timeout=400) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            self._active_job_complete(book_id, "book-polish-plan", error=str(e))
+            return self._json({"error": f"Opus: {e}"}, 500)
+        raw = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+            if raw.startswith("json"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+        raw = raw.strip()
+        try:
+            parsed = json.loads(raw)
+        except Exception as e:
+            self._active_job_complete(book_id, "book-polish-plan", error=f"parse: {e}")
+            return self._json({"error": f"parse: {e}", "raw": raw[:1500]}, 500)
+        plan = parsed.get("plan") or []
+        # Сохраняем кэш
+        cache_dir = DATA_ROOT / "data/book-polish"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        cache = {
+            "ok": True,
+            "book_id": book_id,
+            "ts": ts_iso,
+            "plan": plan,
+            "notes_count": len(open_notes),
+            "usage": data.get("usage", {}),
+        }
+        (cache_dir / f"{book_id}.json").write_text(
+            json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        self._active_job_complete(book_id, "book-polish-plan", result={"plan_size": len(plan)})
+        return self._json(cache)
+
+    def _book_polish_plan_get(self):
+        """GET /api/book/<book_id>/polish-plan → кэш плана."""
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+        book_id = (qs.get("book_id") or [""])[0]
+        if not book_id:
+            return self._json({"error": "book_id required"}, 400)
+        cache = DATA_ROOT / "data/book-polish" / f"{book_id}.json"
+        if not cache.exists():
+            return self._json({"ok": False, "error": "not yet", "status": "not_ready"}, 404)
+        try:
+            return self._json(json.loads(cache.read_text(encoding="utf-8")))
+        except Exception as e:
+            return self._json({"error": str(e)}, 500)
 
     def _post_edit_audit(self):
         """POST {chapter_id} → сравнить ТЕКУЩИЙ draft с самым ранним backup-ом этой

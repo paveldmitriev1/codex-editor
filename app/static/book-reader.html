@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Хранилище · Финальная Полировка — Кодекс</title>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .br-container { max-width: 1400px; margin: 0 auto; padding: 24px; display: grid; grid-template-columns: 1fr 360px; gap: 24px; }
+    .br-main h1 { margin: 0 0 8px 0; font-size: 26px; }
+    .br-meta { color: var(--color-text-muted); font-size: 13px; margin-bottom: 24px; }
+    .br-book-select { background: white; padding: 16px; border-radius: 8px; border: 1px solid var(--color-border); margin-bottom: 24px; }
+    .br-chapter { margin: 32px 0; }
+    .br-chapter h2 { font-size: 20px; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid var(--color-border); }
+    .br-para { padding: 10px 14px; margin: 8px 0; border-radius: 4px; cursor: pointer; transition: background 0.15s; line-height: 1.65; font-size: 15px; position: relative; }
+    .br-para:hover { background: #f9fafb; }
+    .br-para.has-note { background: #fef9c3; border-left: 3px solid #ca8a04; }
+    .br-para.has-note:hover { background: #fef3c7; }
+    .br-para-anchor { color: #9ca3af; font-size: 11px; user-select: none; margin-right: 8px; }
+    .br-notes-panel { background: white; padding: 16px; border-radius: 8px; border: 1px solid var(--color-border); position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; }
+    .br-notes-panel h3 { margin: 0 0 12px 0; font-size: 16px; }
+    .br-note { padding: 10px; background: #fef9c3; border-left: 3px solid #ca8a04; border-radius: 4px; margin: 8px 0; font-size: 13px; }
+    .br-note.applied { background: #dcfce7; border-left-color: #16a34a; opacity: 0.7; }
+    .br-note.dismissed { background: #f3f4f6; border-left-color: #6b7280; opacity: 0.5; text-decoration: line-through; }
+    .br-note-anchor { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
+    .br-note-text { margin-bottom: 6px; }
+    .br-note-actions { display: flex; gap: 6px; }
+    .br-popover { position: absolute; background: white; border: 1px solid var(--color-border); border-radius: 6px; padding: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 100; min-width: 320px; }
+    .br-popover textarea { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-family: inherit; font-size: 13px; }
+    .br-popover-kinds { display: flex; gap: 4px; margin: 6px 0; flex-wrap: wrap; }
+    .br-popover-kinds label { font-size: 12px; cursor: pointer; padding: 3px 8px; border: 1px solid #d1d5db; border-radius: 4px; }
+    .br-polish-btn { background: linear-gradient(135deg, #7c3aed, #6366f1); color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; margin: 16px 0; width: 100%; }
+    .br-polish-btn:hover { opacity: 0.9; }
+    .br-polish-plan-card { background: #ede9fe; border: 2px solid #7c3aed; border-radius: 8px; padding: 14px; margin: 12px 0; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div id="sidebar"></div>
+  <main class="br-container">
+    <div class="br-main">
+      <h1 id="brTitle">Хранилище · Финальная Полировка</h1>
+      <div class="br-meta" id="brMeta">Pavel: место где готовые книги собираются · ты читаешь · оставляешь заметки на параграфы · финальный агент внедряет</div>
+
+      <div class="br-book-select">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">Книга:</label>
+        <select id="brBookSelect" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:4px;font-size:14px;">
+          <option value="">— выбери книгу —</option>
+        </select>
+        <div id="brBookStats" style="margin-top:8px;font-size:12px;color:#6b7280;"></div>
+      </div>
+
+      <div id="brBody"></div>
+    </div>
+
+    <aside class="br-notes-panel">
+      <h3>📝 Заметки <span id="brNotesCount" style="color:#6b7280;font-weight:normal;font-size:13px;"></span></h3>
+      <button class="br-polish-btn" id="brPolishBtn" style="display:none">⭐ Финальная Полировка через агента</button>
+      <div id="brPolishPlan"></div>
+      <div id="brNotesList">
+        <p style="color:#6b7280;font-size:13px;">Кликни на любой параграф чтобы добавить заметку. Заметки появятся здесь.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/static/sidebar.js"></script>
+  <script>
+    var CURRENT_BOOK = null;
+    var ACTIVE_POPOVER = null;
+
+    function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+    function toast(msg, ms) {
+      var t = document.createElement('div');
+      t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f2937;color:white;padding:10px 18px;border-radius:6px;font-size:14px;z-index:1000;';
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(function() { t.remove(); }, ms || 3000);
+    }
+
+    function loadBooks() {
+      fetch('/api/toc')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var sel = document.getElementById('brBookSelect');
+          (d.books || []).forEach(function(b) {
+            var opt = document.createElement('option');
+            opt.value = b.book_id;
+            opt.textContent = b.title + ' (' + (b.chapters || []).length + ' глав)';
+            sel.appendChild(opt);
+          });
+          /* Restore last book */
+          var last = localStorage.getItem('codex2.bookreader.last_book');
+          if (last) { sel.value = last; loadBook(last); }
+        });
+    }
+
+    function loadBook(book_id) {
+      if (!book_id) return;
+      CURRENT_BOOK = book_id;
+      try { localStorage.setItem('codex2.bookreader.last_book', book_id); } catch (e) {}
+      fetch('/api/book/full?book_id=' + encodeURIComponent(book_id))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.error) { toast('Ошибка: ' + d.error); return; }
+          document.getElementById('brTitle').textContent = d.title;
+          document.getElementById('brBookStats').textContent =
+            d.chapter_count + ' глав · ' + d.total_paragraphs + ' параграфов · ' + d.total_chars + ' знаков';
+          renderBook(d);
+          loadNotes();
+        });
+    }
+
+    function renderBook(book) {
+      var body = document.getElementById('brBody');
+      var html = '';
+      (book.chapters || []).forEach(function(c) {
+        html += '<section class="br-chapter" id="ch_' + c.chapter_id + '">';
+        html += '<h2>' + esc(c.title) + '</h2>';
+        c.paragraphs.forEach(function(p) {
+          html += '<div class="br-para" data-chapter="' + c.chapter_id + '" data-para-idx="' + p.idx + '" id="' + p.anchor + '">';
+          html += '<span class="br-para-anchor">' + esc(c.chapter_id) + '·П' + p.idx + '</span>';
+          html += esc(p.text);
+          html += '</div>';
+        });
+        html += '</section>';
+      });
+      body.innerHTML = html;
+      document.querySelectorAll('.br-para').forEach(function(el) {
+        el.addEventListener('click', function(e) { openNotePopover(el, e); });
+      });
+    }
+
+    function openNotePopover(paraEl, evt) {
+      closePopover();
+      var chapter_id = paraEl.dataset.chapter;
+      var para_idx = paraEl.dataset.paraIdx;
+      var pop = document.createElement('div');
+      pop.className = 'br-popover';
+      pop.innerHTML =
+        '<div style="font-size:12px;color:#6b7280;margin-bottom:6px;">' + esc(chapter_id) + ' · параграф ' + para_idx + '</div>' +
+        '<div class="br-popover-kinds">' +
+          '<label><input type="radio" name="brKind" value="edit" checked> ✎ переписать</label>' +
+          '<label><input type="radio" name="brKind" value="remove"> ✕ убрать</label>' +
+          '<label><input type="radio" name="brKind" value="add"> + добавить рядом</label>' +
+          '<label><input type="radio" name="brKind" value="comment"> 💭 заметка</label>' +
+        '</div>' +
+        '<textarea id="brNoteText" rows="3" placeholder="Что хочешь изменить или отметить в этом параграфе?"></textarea>' +
+        '<div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end;">' +
+          '<button class="btn btn-ghost btn-sm" onclick="closePopover()">Отмена</button>' +
+          '<button class="btn btn-primary btn-sm" onclick="saveNote()">Сохранить заметку</button>' +
+        '</div>';
+      var rect = paraEl.getBoundingClientRect();
+      pop.style.top = (window.scrollY + rect.bottom + 4) + 'px';
+      pop.style.left = (window.scrollX + rect.left + 20) + 'px';
+      document.body.appendChild(pop);
+      ACTIVE_POPOVER = { el: pop, chapter_id: chapter_id, para_idx: para_idx };
+      setTimeout(function() { document.getElementById('brNoteText').focus(); }, 50);
+    }
+
+    function closePopover() {
+      if (ACTIVE_POPOVER) { ACTIVE_POPOVER.el.remove(); ACTIVE_POPOVER = null; }
+    }
+
+    function saveNote() {
+      if (!ACTIVE_POPOVER) return;
+      var text = document.getElementById('brNoteText').value.trim();
+      if (text.length < 2) { toast('заметка слишком короткая'); return; }
+      var kind = document.querySelector('input[name="brKind"]:checked').value;
+      fetch('/api/book/note-add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          book_id: CURRENT_BOOK,
+          chapter_id: ACTIVE_POPOVER.chapter_id,
+          para_idx: parseInt(ACTIVE_POPOVER.para_idx, 10),
+          note_text: text,
+          kind: kind,
+        })
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(r) {
+          if (r.error) { toast('Ошибка: ' + r.error); return; }
+          toast('Заметка сохранена');
+          closePopover();
+          loadNotes();
+        });
+    }
+
+    function loadNotes() {
+      if (!CURRENT_BOOK) return;
+      fetch('/api/book/notes?book_id=' + encodeURIComponent(CURRENT_BOOK))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var notes = d.notes || [];
+          document.getElementById('brNotesCount').textContent =
+            '(открытых: ' + (d.open_count || 0) + ' · применённых: ' + (d.applied_count || 0) + ')';
+          document.getElementById('brPolishBtn').style.display = (d.open_count || 0) > 0 ? 'block' : 'none';
+          /* Подсвечиваем параграфы с заметками */
+          document.querySelectorAll('.br-para.has-note').forEach(function(el) { el.classList.remove('has-note'); });
+          notes.filter(function(n) { return n.status === 'open'; }).forEach(function(n) {
+            var anc = document.getElementById(n.chapter_id + '-P' + n.para_idx);
+            if (anc) anc.classList.add('has-note');
+          });
+          /* Рисуем список */
+          var list = document.getElementById('brNotesList');
+          if (!notes.length) {
+            list.innerHTML = '<p style="color:#6b7280;font-size:13px;">Кликни на любой параграф чтобы добавить заметку.</p>';
+            return;
+          }
+          var html = '';
+          notes.slice().reverse().forEach(function(n) {
+            var cls = n.status;
+            html += '<div class="br-note ' + (cls || '') + '">';
+            html += '<div class="br-note-anchor">' + esc(n.chapter_id) + ' · П' + n.para_idx + ' · ' + esc(n.kind || '') + '</div>';
+            html += '<div class="br-note-text">' + esc(n.note_text) + '</div>';
+            if (n.status === 'open') {
+              html += '<div class="br-note-actions">';
+              html += '<button class="btn btn-ghost btn-sm" onclick="goToPara(\'' + esc(n.chapter_id) + '\',' + n.para_idx + ')">→ к параграфу</button>';
+              html += '<button class="btn btn-ghost btn-sm" onclick="dismissNote(\'' + esc(n.note_id) + '\')">✕ скрыть</button>';
+              html += '</div>';
+            }
+            html += '</div>';
+          });
+          list.innerHTML = html;
+        });
+    }
+
+    function goToPara(chapter_id, para_idx) {
+      var anc = document.getElementById(chapter_id + '-P' + para_idx);
+      if (anc) {
+        anc.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        anc.style.boxShadow = '0 0 0 3px rgba(234,179,8,0.5)';
+        setTimeout(function() { anc.style.boxShadow = ''; }, 1500);
+      }
+    }
+
+    function dismissNote(note_id) {
+      fetch('/api/book/note-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ book_id: CURRENT_BOOK, note_id: note_id, status: 'dismissed' })
+      })
+        .then(function(r) { return r.json(); })
+        .then(function() { loadNotes(); });
+    }
+
+    function startPolish() {
+      var btn = document.getElementById('brPolishBtn');
+      btn.disabled = true;
+      btn.textContent = 'Агент думает (~3-4 мин)…';
+      fetch('/api/book/polish-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ book_id: CURRENT_BOOK })
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          btn.disabled = false;
+          btn.textContent = '⭐ Финальная Полировка через агента';
+          if (d.error) { toast('Ошибка: ' + d.error, 6000); return; }
+          renderPolishPlan(d);
+        });
+    }
+
+    function renderPolishPlan(d) {
+      var host = document.getElementById('brPolishPlan');
+      var plan = d.plan || [];
+      var html = '<div class="br-polish-plan-card">';
+      html += '<b>План полировки от агента:</b> ' + plan.length + ' правок<br>';
+      plan.forEach(function(p, i) {
+        html += '<div style="margin:8px 0;padding:8px;background:white;border-radius:4px;">';
+        html += '<b>' + (i+1) + '. ' + esc(p.chapter_id) + ' · П' + p.para_idx + ' · ' + esc(p.kind) + '</b><br>';
+        html += '<div style="margin:6px 0;color:#374151;">' + esc((p.fix || '').slice(0,300)) + (p.fix && p.fix.length > 300 ? '…' : '') + '</div>';
+        if (p.rationale) html += '<div style="font-size:11px;color:#6b7280;font-style:italic;">' + esc(p.rationale) + '</div>';
+        html += '<button class="btn btn-primary btn-sm" style="margin-top:6px;" onclick="applyPolishItem(' + i + ')">Применить</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+      host.innerHTML = html;
+      window.__POLISH_PLAN = d;
+    }
+
+    function applyPolishItem(idx) {
+      var d = window.__POLISH_PLAN;
+      if (!d || !d.plan || !d.plan[idx]) return;
+      var item = d.plan[idx];
+      /* Применяем через replace-paragraph (для replace/remove) */
+      var new_text = item.kind === 'remove' ? '' : (item.fix || '');
+      if (item.kind === 'remove') { toast('Удаление параграфов из агента пока не поддерживается, используй кнопку отдельно'); return; }
+      fetch('/api/chapter/replace-paragraph', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chapter_id: item.chapter_id,
+          para_idx: item.para_idx,
+          new_text: new_text,
+          source: 'book_polish_' + (item.kind || 'replace'),
+        })
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(r) {
+          if (!r.ok) { toast('Ошибка: ' + (r.error || '?')); return; }
+          /* Помечаем note как applied */
+          if (item.note_id) {
+            fetch('/api/book/note-update', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ book_id: CURRENT_BOOK, note_id: item.note_id, status: 'applied' })
+            }).then(function() { loadNotes(); loadBook(CURRENT_BOOK); });
+          }
+          toast('Применено · backup: ' + (r.backup || ''));
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      loadBooks();
+      document.getElementById('brBookSelect').addEventListener('change', function(e) { loadBook(e.target.value); });
+      document.getElementById('brPolishBtn').addEventListener('click', startPolish);
+      document.addEventListener('click', function(e) {
+        if (ACTIVE_POPOVER && !ACTIVE_POPOVER.el.contains(e.target) && !e.target.closest('.br-para')) {
+          closePopover();
+        }
+      });
+    });
+  </script>
+</body>
+</html>
