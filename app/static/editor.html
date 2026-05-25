@@ -2149,32 +2149,76 @@
       });
   }
 
-  /* ФАЗА 3 (2026-05-24): Мастер-аудит. Один Opus с substrate, 3-5 правок, голос Pavel-а. */
+  /* ФАЗА 3 (2026-05-24): Мастер-аудит. Один Opus с substrate, 3-5 правок, голос Pavel-а.
+   * Pavel 2026-05-25: async-pattern — endpoint возвращает мгновенно, Opus идёт в фоне.
+   * Страница не нужна — можешь закрыть. Cache сохраняется на сервере, polling каждые 5с
+   * подхватит результат когда готово. При возврате на страницу loadMasterAuditCache() автозагрузит. */
+  var MASTER_AUDIT_POLLER = null;
   function startMasterAudit() {
     if (!CURRENT_CHAPTER) { toast('Сначала выбери главу'); return; }
     var btn = document.getElementById('masterAuditBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Мастер думает (~3 мин)…'; }
-    setAnalysisStatus('running', 'Мастер-аудит запущен…');
-    fetch('/api/chapter/master-audit', {
+    if (btn) { btn.disabled = true; btn.textContent = 'Мастер думает…'; }
+    setAnalysisStatus('running', 'Мастер запущен…');
+    fetch('/api/chapter/master-audit-start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chapter_id: CURRENT_CHAPTER })
     })
       .then(function(r) { return r.json(); })
       .then(function(d) {
-        if (btn) { btn.disabled = false; btn.textContent = '⭐ Мастер'; }
         if (d.error) {
+          if (btn) { btn.disabled = false; btn.textContent = 'Мастер'; }
           setAnalysisStatus('error', d.error);
           toast('Мастер не справился: ' + d.error, 6000);
           return;
         }
-        setAnalysisStatus('done', 'Мастер: ' + (d.edits || []).length + ' правок');
-        renderMasterAudit(d);
+        if (d.already_running) {
+          toast('Мастер уже идёт ~' + d.elapsed_seconds + 'с, осталось ~' + d.remaining_seconds + 'с', 4000);
+        } else {
+          toast('Мастер запущен в фоне. Можешь закрыть страницу — результат сохранится на сервере.', 5000);
+        }
+        beginMasterAuditPolling(CURRENT_CHAPTER);
       })
       .catch(function(e) {
-        if (btn) { btn.disabled = false; btn.textContent = '⭐ Мастер'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Мастер'; }
         setAnalysisStatus('error', 'сеть');
       });
+  }
+
+  function beginMasterAuditPolling(chapter_id) {
+    if (MASTER_AUDIT_POLLER) { clearInterval(MASTER_AUDIT_POLLER); }
+    var startedAt = Date.now();
+    MASTER_AUDIT_POLLER = setInterval(function() {
+      if (CURRENT_CHAPTER !== chapter_id) {
+        clearInterval(MASTER_AUDIT_POLLER); MASTER_AUDIT_POLLER = null; return;
+      }
+      var elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+      var btn = document.getElementById('masterAuditBtn');
+      if (btn) { btn.textContent = 'Мастер ' + elapsedSec + 'с…'; }
+      fetch('/api/chapter/master-audit?chapter_id=' + encodeURIComponent(chapter_id))
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) {
+          if (!d || !d.ok) return;
+          /* Проверяем что cache СВЕЖИЙ (после нашего старта) */
+          var cacheTs = d.ts ? new Date(d.ts).getTime() : 0;
+          if (cacheTs >= startedAt - 5000) {
+            clearInterval(MASTER_AUDIT_POLLER); MASTER_AUDIT_POLLER = null;
+            if (btn) { btn.disabled = false; btn.textContent = 'Мастер'; }
+            var rawEdits = d.edits || [];
+            d.edits = rawEdits.filter(function(e) { return !e.applied; });
+            setAnalysisStatus('done', 'Мастер: ' + d.edits.length + ' правок · score ' + (d.score_estimate || '?'));
+            renderMasterAudit(d);
+            toast('Мастер готов: ' + d.edits.length + ' правок', 4000);
+          }
+        })
+        .catch(function() { /* polling tick failed — продолжаем */ });
+      /* Защита от вечного цикла: 6 минут максимум */
+      if (elapsedSec > 360) {
+        clearInterval(MASTER_AUDIT_POLLER); MASTER_AUDIT_POLLER = null;
+        if (btn) { btn.disabled = false; btn.textContent = 'Мастер'; }
+        setAnalysisStatus('error', 'таймаут 6мин');
+      }
+    }, 5000);
   }
 
   function loadMasterAuditCache() {

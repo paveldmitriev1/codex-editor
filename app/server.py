@@ -227,6 +227,10 @@ class CodexV2Handler(http.server.BaseHTTPRequestHandler):
         # ФАЗА 3 (2026-05-24): Мастер-аудитор — один Opus, 3-5 правок, голос Pavel-а в substrate
         if path == "/api/chapter/master-audit":
             return self._master_audit()
+        # Pavel 2026-05-25 «страница не нужна, работа идёт на сервере»:
+        # async start — возвращает СРАЗУ {ok, job_id}, Opus в отдельном треде.
+        if path == "/api/chapter/master-audit-start":
+            return self._master_audit_start()
         # Master refine — улучшить одну правку Мастера с комментарием Pavel-а
         if path == "/api/chapter/master-audit/refine":
             return self._master_audit_refine()
@@ -6149,6 +6153,162 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
         })
 
     # ═══ ФАЗА 3 (2026-05-24): MASTER-AUDIT — один Opus, 3-5 правок, голос Pavel-а ═══
+    def _master_audit_start(self):
+        """POST {chapter_id} → возвращает СРАЗУ {ok, job_id}, Opus в отдельном треде.
+
+        Pavel 2026-05-25: «страница не нужна, работа идёт на сервере». Решает
+        проблему когда Pavel закрывает страницу и connection обрывается, но
+        Opus всё равно крутится. С async — http response мгновенный, фронт
+        делает polling .done маркера / cache файла."""
+        import urllib.request, re as _re
+        import threading
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+        chapter_id = req.get("chapter_id", "")
+        m = _re.match(r"^(book-\d+|book-[a-z][a-z0-9-]*?|prologue|epilogue|ustav|appendices)-ch-(\d+)$", chapter_id)
+        if not m:
+            return self._json({"error": "bad chapter_id"}, 400)
+        book_id = m.group(1)
+        ch_dir = DATA_ROOT / "chapters" / book_id / chapter_id
+        draft_file = ch_dir / "draft.md"
+        if not draft_file.exists():
+            return self._json({"error": "no draft.md"}, 404)
+        draft_text = draft_file.read_text(encoding="utf-8")
+        if len(draft_text) < 200:
+            return self._json({"error": "глава слишком короткая (<200 знаков)"}, 400)
+        if len(draft_text) > 60000:
+            return self._json({"error": "глава больше 60K знаков"}, 400)
+
+        # Если уже идёт — не запускаем второй раз
+        active = self._active_jobs_list(chapter_id)
+        for j in active:
+            if j.get("op_type") == "master-audit":
+                return self._json({"ok": True, "already_running": True, "job_id": j.get("job_id"),
+                                   "elapsed_seconds": j.get("elapsed_seconds", 0),
+                                   "remaining_seconds": j.get("remaining_seconds", 0)})
+
+        # OAuth
+        env_file = Path.home() / ".cc-memory-bridge/.env"
+        token = None
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
+                    token = line.split("=", 1)[1].strip()
+                    break
+        if not token:
+            return self._json({"error": "no oauth token"}, 500)
+
+        # Регистрируем job СИНХРОННО (фронт сможет увидеть его сразу)
+        job_id = self._active_job_register(chapter_id, "master-audit", eta_seconds=180)
+
+        # Spawn worker thread — он сам сделает Opus call и сохранит cache
+        def _worker():
+            self._master_audit_worker(chapter_id, draft_text, token)
+        t = threading.Thread(target=_worker, daemon=True, name=f"master-audit-{chapter_id}")
+        t.start()
+
+        return self._json({"ok": True, "started": True, "job_id": job_id,
+                          "eta_seconds": 180, "message": "Master Audit запущен в фоне; можешь закрыть страницу."})
+
+    def _master_audit_worker(self, chapter_id: str, draft_text: str, token: str):
+        """Background worker — делает Opus call, пишет cache, помечает done.
+        НЕ вызывает self._json (нет HTTP response клиенту)."""
+        import urllib.request
+        from datetime import datetime, timezone
+
+        try:
+            # Substrate + numbered paragraphs
+            substrate = self._pavel_substrate(chapter_id, max_total_chars=22000)
+            paras = [p.strip() for p in draft_text.split("\n\n") if p.strip()]
+            numbered = "\n\n".join(f"[П{i}] {p}" for i, p in enumerate(paras))
+
+            system = (
+                "Ты — МАСТЕР-АУДИТОР Сакрального Кодекса Микомистицизма Pavel-а Хилингода.\n\n"
+                "Твоя единственная задача: прочитать главу и вернуть ровно 3-5 правок, "
+                "которые превратят её в шедевр на 1000 лет.\n\n"
+                "Не больше. Если видишь больше — оставь ТРИ самые важные.\n\n"
+                "КАЖДАЯ ПРАВКА:\n"
+                "  • Адресована конкретному параграфу (по индексу)\n"
+                "  • С указанием проблемы (issue) на языке Pavel-канона\n"
+                "  • С готовой заменой (fix) — текст в голосе Хилингода\n"
+                "  • С rationale: почему важно для шедевра\n\n"
+                "Жёсткие отсечки:\n"
+                "  • Не убирай анафоры / троичные перечисления.\n"
+                "  • Не вводи вымышленных героев и научные метрики.\n"
+                "  • Без тире (— и –) в fix-тексте.\n\n"
+                "Ответ — СТРОГО JSON:\n"
+                '{ "edits": [ { "para_idx": N, "issue": "...", "fix": "...", '
+                '"rationale": "...", "category": "voice|canon|cliche|structure|missing-idea" } ], '
+                '"verdict": "одна строка", "score_estimate": <0-100> }\n\n'
+                "Без преамбулы, сразу JSON.\n\n"
+                f"=== SUBSTRATE PAVEL-А ===\n\n{substrate}"
+            )
+            user = (
+                f"# Глава {chapter_id}\n\n"
+                f"# ТЕКСТ ГЛАВЫ (параграфы пронумерованы [П0], [П1], …):\n\n"
+                f"{numbered}\n\n"
+                f"# ЗАДАЧА\nВыдай 3-5 правок которые сильнее всего двигают эту главу к шедевру. JSON."
+            )
+            body_req = {
+                "model": "claude-opus-4-7",
+                "max_tokens": 6000,
+                "thinking": {"type": "enabled", "budget_tokens": 4000},
+                "system": system,
+                "messages": [{"role": "user", "content": user}],
+            }
+            req_obj = urllib.request.Request(
+                "http://127.0.0.1:8787/v1/messages",
+                data=json.dumps(body_req).encode("utf-8"),
+                headers={
+                    "x-api-key": token,
+                    "anthropic-version": "2023-06-01",
+                    "anthropic-beta": "interleaved-thinking-2025-05-14",
+                    "content-type": "application/json",
+                },
+            )
+            with urllib.request.urlopen(req_obj, timeout=300) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            raw = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+                if raw.endswith("```"):
+                    raw = raw.rsplit("```", 1)[0]
+                if raw.startswith("json"):
+                    raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+            parsed = json.loads(raw.strip())
+            edits = (parsed.get("edits") or [])[:5]
+            for e in edits:
+                try:
+                    pi = int(e.get("para_idx", -1))
+                    e["original"] = paras[pi] if 0 <= pi < len(paras) else ""
+                except Exception:
+                    e["original"] = ""
+            cache = {
+                "ok": True,
+                "chapter_id": chapter_id,
+                "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "edits": edits,
+                "verdict": parsed.get("verdict", ""),
+                "score_estimate": parsed.get("score_estimate"),
+                "usage": data.get("usage", {}),
+                "paragraphs_count": len(paras),
+            }
+            cache_dir = DATA_ROOT / "data/master-audit"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            (cache_dir / f"{chapter_id}.json").write_text(
+                json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._active_job_complete(chapter_id, "master-audit", result={
+                "edits_count": len(edits),
+                "score_estimate": parsed.get("score_estimate"),
+            })
+        except Exception as e:
+            self._active_job_complete(chapter_id, "master-audit", error=str(e))
+
     def _master_audit(self):
         """POST {chapter_id} → один Opus call с _pavel_substrate, возвращает 3-5 правок."""
         import urllib.request, re as _re
@@ -10005,10 +10165,44 @@ class ReusableTCPServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
+def _cleanup_active_jobs_on_shutdown():
+    """Pavel 2026-05-25: помечаем все running jobs как failed при выключении сервера,
+    чтобы фронт не показывал зависший прогресс. Зомби-маркер = плохой UX."""
+    import signal
+    from datetime import datetime, timezone
+
+    def mark_running_jobs_failed(reason: str):
+        jobs_dir = DATA_ROOT / ".codex/active-jobs"
+        if not jobs_dir.exists():
+            return
+        for f in jobs_dir.glob("*.json"):
+            if f.name.endswith(".done.json"):
+                continue
+            try:
+                rec = json.loads(f.read_text(encoding="utf-8"))
+                rec["status"] = "failed"
+                rec["finished_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                rec["error"] = reason
+                done_path = jobs_dir / f.name.replace(".json", ".done.json")
+                done_path.write_text(json.dumps(rec, ensure_ascii=False, indent=2), encoding="utf-8")
+                f.unlink()
+            except Exception:
+                pass
+
+    def handler(signum, frame):
+        mark_running_jobs_failed(f"server got signal {signum}")
+        import sys
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, handler)
+    signal.signal(signal.SIGINT, handler)
+
+
 def main():
     print(f"Codex v2 → http://127.0.0.1:{PORT}")
     print(f"  static: {STATIC}")
     print(f"  data:   {DATA_ROOT}")
+    _cleanup_active_jobs_on_shutdown()
     with ReusableTCPServer(("127.0.0.1", PORT), CodexV2Handler) as srv:
         try:
             srv.serve_forever()
