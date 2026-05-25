@@ -247,6 +247,10 @@ class CodexV2Handler(http.server.BaseHTTPRequestHandler):
         # опечатки/грамматику/ритм, возвращает мелкие fixes если есть.
         if path == "/api/chapter/proofread-paragraph":
             return self._proofread_paragraph()
+        # Pavel 2026-05-25: локальный AI-detector БЕЗ Opus.
+        # Возвращает {ai_score: 0-100, verdict, markers, advice}.
+        if path == "/api/chapter/ai-score":
+            return self._ai_score()
         # Pavel 2026-05-25: после правок сверить с оригиналом + голосовыми
         if path == "/api/chapter/post-edit-audit":
             return self._post_edit_audit()
@@ -3629,6 +3633,21 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
                 ch["progress"] = progress
                 ch["is_finalized"] = (progress == "finalized")
                 ch["has_draft"] = draft_file.exists()
+                # Pavel 2026-05-25: AI-score через локальный detector.
+                # Если score >= 50 — текст звучит как AI, требует ручной правки.
+                if draft_file.exists():
+                    try:
+                        import sys
+                        scripts_dir = str(ROOT.parent / "scripts")
+                        if scripts_dir not in sys.path:
+                            sys.path.insert(0, scripts_dir)
+                        from ai_detection_local import compute_ai_score
+                        ai_res = compute_ai_score(draft_file.read_text(encoding="utf-8"))
+                        ch["ai_score"] = ai_res.get("score", 0)
+                        ch["ai_verdict"] = ai_res.get("verdict", "")
+                    except Exception:
+                        pass
+
                 # Pavel 2026-05-25: индикатор готового master-audit cache.
                 # Если есть cache ≤ 7 дней — глава готова к открытию с правками
                 # от Мастера сразу (иначе придётся ждать ~2 мин Opus).
@@ -7770,6 +7789,39 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             "restored_chars": len(restored),
             "ts": ts_iso,
         })
+
+    def _ai_score(self):
+        """POST {chapter_id} → локальный AI-detector БЕЗ Opus.
+        Wraps scripts/ai_detection_local.py.compute_ai_score()."""
+        import re as _re
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+        chapter_id = req.get("chapter_id", "")
+        m = _re.match(r"^(book-\d+|book-[a-z][a-z0-9-]*?|prologue|epilogue|ustav|appendices)-ch-(\d+)$", chapter_id)
+        if not m:
+            return self._json({"error": "bad chapter_id"}, 400)
+        book_id = m.group(1)
+        draft = DATA_ROOT / "chapters" / book_id / chapter_id / "draft.md"
+        if not draft.exists():
+            return self._json({"error": "no draft.md"}, 404)
+
+        # Import lazily
+        import sys
+        scripts_dir = str(ROOT.parent / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        try:
+            from ai_detection_local import compute_ai_score
+        except Exception as e:
+            return self._json({"error": f"detector import: {e}"}, 500)
+
+        result = compute_ai_score(draft.read_text(encoding="utf-8"))
+        result["chapter_id"] = chapter_id
+        return self._json(result)
 
     def _proofread_paragraph(self):
         """POST {chapter_id, para_idx, text} → Opus читает текст после Pavel-овской
