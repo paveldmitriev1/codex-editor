@@ -2104,7 +2104,11 @@
     fetch('/api/chapter/master-audit?chapter_id=' + encodeURIComponent(CURRENT_CHAPTER))
       .then(function(r) { return r.ok ? r.json() : null; })
       .then(function(d) {
-        if (d && d.ok && (d.edits || []).length) {
+        if (!d || !d.ok) return;
+        /* Отфильтровываем правки уже помеченные applied (сделанные ранее) */
+        var rawEdits = d.edits || [];
+        d.edits = rawEdits.filter(function(e) { return !e.applied; });
+        if (d.edits.length) {
           renderMasterAudit(d);
         }
       })
@@ -2229,7 +2233,9 @@
     if (e.para_idx == null) { toast('Нет para_idx у этой правки', 4000); return; }
     if (!e.fix || e.fix.length < 5) { toast('Замена пустая или слишком короткая', 4000); return; }
 
-    /* Прямая замена параграфа — без Opus, мгновенно. Endpoint replace-paragraph. */
+    /* Прямая замена параграфа — без Opus, мгновенно. Endpoint replace-paragraph.
+       Передаём master_audit_edit_index чтобы сервер пометил applied=true в кэше
+       (иначе на reload карточка вернётся). */
     fetch('/api/chapter/replace-paragraph', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2238,6 +2244,7 @@
         para_idx: e.para_idx,
         new_text: e.fix,
         source: 'master_audit_' + (e.category || 'edit'),
+        master_audit_edit_index: idx,
       })
     })
       .then(function(r) { return r.json(); })

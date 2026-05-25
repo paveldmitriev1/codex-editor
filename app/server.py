@@ -1130,7 +1130,8 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
                 except Exception as e:
                     return self._json({"error": f"toc.json parse failed: {e}"}, 500)
             else:
-                data = {"books": [], "created": False, "version": 0}
+                # toc.json отсутствует — строим из файловой системы chapters/
+                data = self._build_toc_from_disk()
             # Обогащаем главы прогрессом (draft / finalized / score)
             try:
                 self._enrich_toc_progress(data)
@@ -3370,6 +3371,68 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
         return self._json({"error": f"unknown action: {action}"}, 404)
 
     # ─── Helper: обогащение TOC прогрессом ──
+    def _build_toc_from_disk(self) -> dict:
+        """Если toc.json отсутствует — собираем оглавление из реальной структуры
+        папки chapters/. Любая папка chapters/<book>/<book>-ch-N/ с draft.md
+        попадает в TOC. Title берём из meta.json или из первой строки draft.md."""
+        chapters_root = DATA_ROOT / "chapters"
+        if not chapters_root.exists():
+            return {"books": [], "created": False, "version": 0}
+        books = []
+        for book_dir in sorted(chapters_root.iterdir()):
+            if not book_dir.is_dir() or book_dir.name.startswith("."):
+                continue
+            # Заголовок книги: canon.json → title, иначе из book_id
+            book_title = book_dir.name
+            canon_file = book_dir / "canon.json"
+            if canon_file.exists():
+                try:
+                    canon = json.loads(canon_file.read_text(encoding="utf-8"))
+                    book_title = canon.get("title") or book_title
+                except Exception:
+                    pass
+            chapters = []
+            for ch_dir in sorted(book_dir.iterdir()):
+                if not ch_dir.is_dir() or ch_dir.name.startswith("."):
+                    continue
+                # Главы это поддиректории формата <book>-ch-N
+                if "-ch-" not in ch_dir.name:
+                    continue
+                ch_title = ch_dir.name
+                meta_file = ch_dir / "meta.json"
+                if meta_file.exists():
+                    try:
+                        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                        ch_title = meta.get("title") or meta.get("title_clean") or ch_title
+                    except Exception:
+                        pass
+                else:
+                    # Берём заголовок из первой строки draft.md
+                    draft = ch_dir / "draft.md"
+                    if draft.exists():
+                        try:
+                            first_line = draft.read_text(encoding="utf-8").split("\n", 1)[0].strip()
+                            if first_line and len(first_line) < 200:
+                                ch_title = first_line
+                        except Exception:
+                            pass
+                chapters.append({
+                    "id": ch_dir.name,
+                    "title": ch_title,
+                })
+            if chapters:
+                books.append({
+                    "book_id": book_dir.name,
+                    "title": book_title,
+                    "chapters": chapters,
+                })
+        return {
+            "books": books,
+            "created": True,
+            "version": 1,
+            "source": "auto_built_from_disk",
+        }
+
     def _enrich_toc_progress(self, data: dict):
         """Добавляет к каждой главе: progress (none|draft|finalized), avg_score, paragraph counts.
         Обновляет book.progress_summary."""
@@ -6747,9 +6810,11 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
         })
 
     def _replace_paragraph(self):
-        """POST {chapter_id, para_idx, new_text, source?} → детерминированная замена
-        параграфа N в draft.md. БЕЗ Opus, без интерпретации. Мгновенно.
-        Используется master-audit Apply, paragraph-writer и т.п."""
+        """POST {chapter_id, para_idx, new_text, source?, master_audit_edit_index?} →
+        детерминированная замена параграфа N в draft.md. БЕЗ Opus.
+        Если передан master_audit_edit_index — также помечает эту правку
+        applied=true в кэше data/master-audit/<chapter>.json чтобы при
+        reload она не возвращалась в UI."""
         import re as _re
         from datetime import datetime, timezone
 
@@ -6764,6 +6829,7 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
         para_idx = req.get("para_idx")
         new_text = (req.get("new_text") or "").strip()
         source = req.get("source", "manual")
+        master_idx = req.get("master_audit_edit_index")
 
         m = _re.match(r"^(book-\d+|book-[a-z][a-z0-9-]*?|prologue|epilogue|ustav|appendices)-ch-(\d+)$", chapter_id)
         if not m:
@@ -6818,6 +6884,28 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
                 },
             }, ensure_ascii=False) + "\n")
 
+        # Опционально: пометить правку Мастера как applied в кэше
+        if master_idx is not None:
+            cache_path = DATA_ROOT / "data/master-audit" / f"{chapter_id}.json"
+            if cache_path.exists():
+                try:
+                    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+                    edits = cache.get("edits") or []
+                    try:
+                        mi = int(master_idx)
+                        if 0 <= mi < len(edits):
+                            edits[mi]["applied"] = True
+                            edits[mi]["applied_at"] = ts_iso
+                            cache["edits"] = edits
+                            cache_path.write_text(
+                                json.dumps(cache, ensure_ascii=False, indent=2),
+                                encoding="utf-8",
+                            )
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
         return self._json({
             "ok": True,
             "para_idx": para_idx,
@@ -6826,6 +6914,7 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             "total_paragraphs": len(paras),
             "backup": backup_path.name,
             "source": source,
+            "master_audit_edit_index": master_idx,
         })
 
     # ─── UC-30: WIZARD — глава с нуля через Q&A (Pavel 2026-05-20) ──
