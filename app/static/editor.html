@@ -1748,6 +1748,7 @@
         + '<div class="fix-group-body" style="padding:var(--space-4) var(--space-3);text-align:center">'
         + '<div style="margin-bottom:var(--space-3);color:var(--color-text);font-size:14px">Нажми «✨ Убрать конфликты» сверху — за минуту главный бот соберёт все рекомендации критиков, голосовых, Журналиста, старейшин и персон → выдаст ТОП-5 самых важных без дублей и противоречий. Голосовые твои — приоритет.</div>'
         + '<button class="btn btn-primary" id="quickReconcileBtn">✨ Получить ТОП-5</button>'
+        + '<button class="btn btn-success" id="applyTop5OneClickBtn" title="Получить ТОП-5 и сразу применить через Opus за один шаг — 3-5 мин">🚀 ТОП-5 и сразу применить</button>'
         + '</div></div>');
     }
 
@@ -2326,6 +2327,9 @@
         /* UC-126: подключаем quick-reconcile-button если есть */
         var qrb = document.getElementById('quickReconcileBtn');
         if (qrb) qrb.addEventListener('click', startReconcile);
+        /* Pavel 2026-05-25: «ТОП-5 и сразу применить» one-click */
+        var tob = document.getElementById('applyTop5OneClickBtn');
+        if (tob) tob.addEventListener('click', applyTop5OneClick);
       })
       .catch(function(e) {
         setAnalysisStatus('error', 'ошибка: ' + e.message);
@@ -3366,6 +3370,55 @@
       .catch(function(e) {
         toast('Сеть: ' + e.message);
         if (btn) { btn.disabled = false; btn.textContent = '✨ Убрать конфликты'; }
+      });
+  }
+
+  /* Pavel 2026-05-25: ТОП-5 one-click. Reconcile → берём top-5 → сразу
+     apply-targeted через Opus. Без подтверждения checkboxes-ов. */
+  function applyTop5OneClick() {
+    if (!CURRENT_CHAPTER) { toast('Сначала выбери главу'); return; }
+    if (!window.confirm('Получить ТОП-5 рекомендаций и сразу применить через Opus 4.7?\n\n• 1-2 мин Reconciler собирает приоритетный список\n• 3-5 мин Opus переписывает главу\n• Бэкап автоматический\n\nПродолжить?')) return;
+    var btn = document.getElementById('applyTop5OneClickBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '🚀 ТОП-5 собирается…'; }
+    toast('Шаг 1/2: Reconciler собирает ТОП-5 (1-2 мин)…', 5000);
+    fetch('/api/editor/reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER, force: true, top_k: 5 })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.ok) {
+          toast('Reconciler упал: ' + (d.error || '?'), 6000);
+          if (btn) { btn.disabled = false; btn.textContent = '🚀 ТОП-5 и сразу применить'; }
+          return;
+        }
+        var topItems = (d.reconciled || []).slice(0, 5);
+        if (!topItems.length) {
+          toast('Reconciler вернул пустой список', 5000);
+          if (btn) { btn.disabled = false; btn.textContent = '🚀 ТОП-5 и сразу применить'; }
+          return;
+        }
+        /* Показываем что собирается применить */
+        renderReconciledPanel(d);
+        toast('Шаг 2/2: Применяю ТОП-' + topItems.length + ' через Opus (3-5 мин)…', 6000);
+        if (btn) { btn.textContent = '🚀 Применяю ' + topItems.length + '…'; }
+        /* Передаём в существующий apply-targeted (тот же путь что Apply checked) */
+        var fixes = topItems.map(function(it) {
+          return {
+            critic: 'reconciled_' + (it.source || 'unknown'),
+            text: it.text,
+            meta: it.rationale || '',
+            para_idx: it.para_idx,
+          };
+        });
+        doApplyTargeted(fixes, null, function() {
+          if (btn) { btn.disabled = false; btn.textContent = '🚀 ТОП-5 и сразу применить'; }
+        });
+      })
+      .catch(function(e) {
+        toast('Сеть: ' + e.message, 5000);
+        if (btn) { btn.disabled = false; btn.textContent = '🚀 ТОП-5 и сразу применить'; }
       });
   }
 
