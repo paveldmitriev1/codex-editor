@@ -7823,6 +7823,24 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
         new_draft = "\n\n".join(paras) + "\n"
         draft_file.write_text(new_draft, encoding="utf-8")
 
+        # Pavel 2026-05-25 баг: title H1 не обновлялся при Apply para 0.
+        # Когда Master заменяет заголовок (para_idx=0) — синхронизировать
+        # meta.json.title + content stats. Иначе loadChapter() в editor берёт
+        # старый title из meta и Pavel визуально не видит изменения.
+        try:
+            meta_path = ch_dir / "meta.json"
+            if meta_path.exists():
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                if para_idx == 0:
+                    # Снимаем «ГЛАВА N: » префикс если есть — оставляем чистый title
+                    meta["title"] = new_text.strip()
+                meta["paragraphs_count"] = len(paras)
+                meta["chars_count"] = len(new_draft)
+                meta["content_updated_at"] = ts_iso
+                self._atomic_write_json(meta_path, meta)
+        except Exception:
+            pass
+
         # Лог события
         events_log = DATA_ROOT / ".codex/events.jsonl"
         events_log.parent.mkdir(parents=True, exist_ok=True)

@@ -2204,11 +2204,11 @@
           if (cacheTs >= startedAt - 5000) {
             clearInterval(MASTER_AUDIT_POLLER); MASTER_AUDIT_POLLER = null;
             if (btn) { btn.disabled = false; btn.textContent = 'Мастер'; }
-            var rawEdits = d.edits || [];
-            d.edits = rawEdits.filter(function(e) { return !e.applied; });
-            setAnalysisStatus('done', 'Мастер: ' + d.edits.length + ' правок · score ' + (d.score_estimate || '?'));
+            /* Не мутируем d.edits — renderMasterAudit сам фильтрует applied */
+            var visibleCount = (d.edits || []).filter(function(e) { return !e.applied; }).length;
+            setAnalysisStatus('done', 'Мастер: ' + visibleCount + ' правок · score ' + (d.score_estimate || '?'));
             renderMasterAudit(d);
-            toast('Мастер готов: ' + d.edits.length + ' правок', 4000);
+            toast('Мастер готов: ' + visibleCount + ' правок', 4000);
           }
         })
         .catch(function() { /* polling tick failed — продолжаем */ });
@@ -2227,10 +2227,11 @@
       .then(function(r) { return r.ok ? r.json() : null; })
       .then(function(d) {
         if (!d || !d.ok) return;
-        /* Отфильтровываем правки уже помеченные applied (сделанные ранее) */
-        var rawEdits = d.edits || [];
-        d.edits = rawEdits.filter(function(e) { return !e.applied; });
-        if (d.edits.length) {
+        /* Pavel 2026-05-25 баг fix: НЕ мутируем d.edits — рендер сам фильтрует
+           applied. Если мутировать, ломаются индексы (idx в onclick перестаёт
+           соответствовать индексу в server cache). */
+        var visibleCount = (d.edits || []).filter(function(e) { return !e.applied; }).length;
+        if (visibleCount > 0) {
           renderMasterAudit(d);
         }
       })
@@ -2243,23 +2244,29 @@
     var score = data.score_estimate;
     var verdict = data.verdict || '';
 
-    // Запоминаем для применения и refine
+    // Запоминаем для применения и refine. ВАЖНО: array не мутируется на applied —
+    // оригинальные индексы сохраняются для корректной передачи в server.
     window.__MASTER_AUDIT_DATA = data;
+
+    /* Pavel 2026-05-25 баг fix: фильтруем applied=true ТОЛЬКО при рендере,
+       не мутируя массив. Индексы сохраняются. */
+    var visibleEdits = edits.filter(function(e) { return !e.applied; });
 
     /* 1. Тонкая summary-полоска сверху (без раскрытых правок). */
     var summaryHtml = '<div class="master-audit-summary" style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;border-radius:8px;padding:12px 14px;margin:0 0 14px 0;">';
     summaryHtml += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">';
-    summaryHtml += '<div style="flex:1;min-width:200px;"><b style="color:#78350f;">⭐ Мастер</b> · ' + edits.length + ' правок размещены прямо под параграфами';
+    summaryHtml += '<div style="flex:1;min-width:200px;"><b style="color:#78350f;">⭐ Мастер</b> · ' + visibleEdits.length + ' правок размещены прямо под параграфами';
     if (verdict) summaryHtml += ' · <i style="color:#92400e;">' + esc(verdict) + '</i>';
     summaryHtml += '</div>';
     if (score != null) {
       summaryHtml += '<span style="background:#78350f;color:#fef3c7;padding:3px 10px;border-radius:14px;font-size:13px;font-weight:600;">' + score + '/100</span>';
     }
     summaryHtml += '</div>';
-    /* Прыжки на правки — короткий список */
-    if (edits.length) {
+    /* Прыжки на правки — короткий список. Только не-applied. Передаём ОРИГИНАЛЬНЫЕ idx. */
+    if (visibleEdits.length) {
       summaryHtml += '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;font-size:12px;">';
       edits.forEach(function(e, idx) {
+        if (e.applied) return;
         var cat = e.category || '';
         summaryHtml += '<a href="#masterEdit_' + idx + '" onclick="scrollToMasterEdit(' + idx + ');return false;" style="background:#fff;border:1px solid #f59e0b;border-radius:12px;padding:3px 10px;color:#78350f;text-decoration:none;">→ П' + (e.para_idx != null ? e.para_idx : '?') + (cat ? ' · ' + esc(cat) : '') + '</a>';
       });
@@ -2280,6 +2287,7 @@
 
     /* 3. Вставляем inline-карточку под каждый параграф у которого есть правка. */
     edits.forEach(function(e, idx) {
+      if (e.applied) return;  /* Pavel 2026-05-25: уже применённые не показываем */
       var pi = e.para_idx;
       if (pi == null) return;
       var paraEl = document.querySelector('#chapterBody [data-idx="' + pi + '"]');
@@ -2376,12 +2384,13 @@
           return;
         }
         toast('Параграф ' + e.para_idx + ' заменён (бэкап: ' + r.backup + ')', 3500);
-        /* Помечаем правку как применённую */
-        if (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits) {
+        /* Pavel 2026-05-25 баг fix: НЕ мутируем edits array (filter ломает
+           индексы при следующих Apply). Только помечаем applied=true. Render
+           фильтрует, applyMasterEdit передаёт ОРИГИНАЛЬНЫЙ idx сервера. */
+        if (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits && window.__MASTER_AUDIT_DATA.edits[idx]) {
           window.__MASTER_AUDIT_DATA.edits[idx].applied = true;
-          window.__MASTER_AUDIT_DATA.edits = window.__MASTER_AUDIT_DATA.edits.filter(function(x) { return !x.applied; });
         }
-        var remaining = (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits) ? window.__MASTER_AUDIT_DATA.edits.length : 0;
+        var remaining = (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits) ? window.__MASTER_AUDIT_DATA.edits.filter(function(x) { return !x.applied; }).length : 0;
         /* Перезагружаем главу — параграф обновится */
         loadChapter(CURRENT_CHAPTER);
         setTimeout(function() {
