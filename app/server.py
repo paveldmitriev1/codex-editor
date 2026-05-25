@@ -1312,6 +1312,29 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    def _atomic_write_json(self, path, obj):
+        """Pavel 2026-05-25: защита от half-write при крашах.
+        Пишем во временный файл и атомарно переименовываем — file либо
+        старая версия, либо новая, никогда не половина."""
+        import tempfile, os
+        path = Path(path) if not isinstance(path, Path) else path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # tempfile в той же директории чтобы rename был atomic (same filesystem)
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=f".{path.name}.tmp.",
+            dir=str(path.parent),
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(obj, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, str(path))
+        except Exception:
+            try: os.unlink(tmp_path)
+            except Exception: pass
+            raise
+
     def _active_job_register(self, chapter_id: str, op_type: str, eta_seconds: int = 300, extra: dict = None) -> str:
         from datetime import datetime, timezone
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -3416,6 +3439,7 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
         """Если toc.json отсутствует — собираем оглавление из реальной структуры
         папки chapters/. Любая папка chapters/<book>/<book>-ch-N/ с draft.md
         попадает в TOC. Title берём из meta.json или из первой строки draft.md."""
+        from datetime import datetime, timezone
         chapters_root = DATA_ROOT / "chapters"
         if not chapters_root.exists():
             return {"books": [], "created": False, "version": 0}
@@ -3467,11 +3491,25 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
                     "title": book_title,
                     "chapters": chapters,
                 })
+        # Pavel 2026-05-25: frontend index.html ожидает stats.active_chapters,
+        # без него падает «Cannot read properties of undefined».
+        total_chapters = sum(len(b.get("chapters", [])) for b in books)
+        total_books = len(books)
         return {
             "books": books,
             "created": True,
             "version": 1,
             "source": "auto_built_from_disk",
+            "stats": {
+                "chapters": total_chapters,
+                "active_chapters": total_chapters,
+                "books": total_books,
+                "active_books": total_books,
+                "grant_files": 0,
+                "voice_files": 0,
+                "total_bytes": 0,
+            },
+            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
     def _enrich_toc_progress(self, data: dict):
@@ -6321,9 +6359,7 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
                 "paragraphs_count": len(paras),
             }
             cache_dir = DATA_ROOT / "data/master-audit"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            (cache_dir / f"{chapter_id}.json").write_text(
-                json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._atomic_write_json(cache_dir / f"{chapter_id}.json", cache)
             self._active_job_complete(chapter_id, "master-audit", result={
                 "edits_count": len(edits),
                 "score_estimate": parsed.get("score_estimate"),
@@ -6514,8 +6550,7 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             "usage": data.get("usage", {}),
             "paragraphs_count": len(paras),
         }
-        (cache_dir / f"{chapter_id}.json").write_text(
-            json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._atomic_write_json(cache_dir / f"{chapter_id}.json", cache)
 
         self._active_job_complete(chapter_id, "master-audit", result={
             "edits_count": len(edits),
@@ -7395,9 +7430,7 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             "notes_count": len(open_notes),
             "usage": data.get("usage", {}),
         }
-        (cache_dir / f"{book_id}.json").write_text(
-            json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        self._atomic_write_json(cache_dir / f"{book_id}.json", cache)
         self._active_job_complete(book_id, "book-polish-plan", result={"plan_size": len(plan)})
         return self._json(cache)
 
