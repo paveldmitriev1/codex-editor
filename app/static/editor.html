@@ -2226,7 +2226,7 @@
     var d = window.__MASTER_AUDIT_DATA;
     if (!d || !d.edits || !d.edits[idx]) return;
     var e = d.edits[idx];
-    if (!confirm('Применить правку к параграфу ' + e.para_idx + '?')) return;
+    /* Без confirm — Pavel хочет одним кликом. Откат через .history/ если что. */
     var selections = [{
       source: 'master_audit',
       id: 'master_' + idx,
