@@ -344,6 +344,7 @@
         <h2>Анализ и рекомендации</h2>
         <div class="analysis-panel-head-right">
           <span class="analysis-status" id="analysisStatus">не запускалось</span>
+          <button class="btn btn-primary btn-sm" id="paragraphWriterBtn" title="Codex 3: упаковать твою идею в параграф из твоих же голосовых цитат. Ты контролируешь каждое предложение.">✏️ Соавтор</button>
           <button class="btn btn-primary btn-sm" id="masterAuditBtn" title="Мастер-аудитор: один Opus с твоим каноном + библиотекой + голосовыми. 3-5 главных правок за ~3 мин.">⭐ Мастер</button>
           <button class="btn btn-ghost btn-sm" id="analysisRunBtn" title="Запустить 5 ключевых критиков (3-5 мин)">Критики</button>
           <button class="btn btn-ghost btn-sm" id="personasRunBtn" title="3 современные персоны: Огилви, Роган, Тиль">Персоны</button>
@@ -377,6 +378,42 @@
           <div id="progressEta" style="font-size:11px;color:var(--color-text-muted);font-variant-numeric:tabular-nums"></div>
         </div>
         <div id="progressLog" style="margin-top:var(--space-2);font-size:11px;color:var(--color-text-muted);max-height:60px;overflow-y:auto;font-family:ui-monospace,Menlo,monospace"></div>
+      </div>
+    </section>
+
+    <!-- CODEX 3 (2026-05-24): Соавтор-упаковщик. Один тезис → один проект параграфа → твоё решение. -->
+    <section id="paragraphWriterPanel" class="analysis-panel" style="display:none">
+      <header class="analysis-panel-head">
+        <h2>✏️ Соавтор: упаковка идеи в параграф</h2>
+        <div class="analysis-panel-head-right">
+          <button class="btn btn-ghost btn-sm" id="paragraphWriterCloseBtn" title="Скрыть">×</button>
+        </div>
+      </header>
+      <div style="padding:var(--space-4);background:#fff;border-radius:6px;margin:0;">
+        <p style="margin:0 0 12px 0;color:#374151;font-size:13px;">
+          Pavel — целитель, не писатель. AI упаковывает твою идею в художественный параграф из <b>твоих</b> голосовых цитат.
+          Ты смотришь проект и решаешь: принять, править руками, переписать заново, пропустить.
+          Никаких bulk-применений — каждый параграф — твой осознанный выбор.
+        </p>
+        <div style="display:grid;gap:10px;">
+          <label style="display:block;">
+            <span style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;">Тезис параграфа (одна мысль которую нужно упаковать)</span>
+            <textarea id="pwThesis" rows="2" placeholder="Например: «Вирус заражает плоть человека через необратимые вмешательства»"
+              style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:4px;font-family:inherit;font-size:14px;"></textarea>
+          </label>
+          <label style="display:block;">
+            <span style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;">Куда вставлять (выбери место в главе)</span>
+            <select id="pwAfterIdx" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:4px;font-size:14px;">
+              <option value="-1">В начало главы</option>
+              <option value="end" selected>В конец главы</option>
+            </select>
+          </label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-primary" id="pwGenerateBtn">Сгенерировать проект параграфа</button>
+            <span id="pwStatus" style="font-size:13px;color:#6b7280;"></span>
+          </div>
+        </div>
+        <div id="pwResultHost" style="margin-top:16px;"></div>
       </div>
     </section>
 
@@ -2143,6 +2180,202 @@
       .catch(function(err) { toast('Сеть: ' + err.message, 5000); });
   }
 
+  /* ═══ CODEX 3 (2026-05-24): Paragraph Writer — paragraph-by-paragraph approval gate ═══ */
+  var PW_LAST_DATA = null;
+
+  function openParagraphWriter() {
+    if (!CURRENT_CHAPTER) { toast('Сначала выбери главу'); return; }
+    var panel = document.getElementById('paragraphWriterPanel');
+    if (panel) {
+      panel.style.display = 'block';
+      panel.classList.add('visible');
+      setTimeout(function() { panel.scrollIntoView({behavior: 'smooth', block: 'start'}); }, 80);
+    }
+    pwRebuildPositionSelect();
+  }
+
+  function closeParagraphWriter() {
+    var panel = document.getElementById('paragraphWriterPanel');
+    if (panel) panel.style.display = 'none';
+  }
+
+  function pwRebuildPositionSelect() {
+    var sel = document.getElementById('pwAfterIdx');
+    if (!sel || !CURRENT_DRAFT) return;
+    var paras = (CURRENT_DRAFT.paragraphs || []);
+    sel.innerHTML = '<option value="-1">В начало главы</option>';
+    paras.forEach(function(p, i) {
+      var preview = (p.text || '').slice(0, 60).replace(/\s+/g, ' ');
+      var opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = 'После П' + i + ': ' + preview + '…';
+      sel.appendChild(opt);
+    });
+    var endOpt = document.createElement('option');
+    endOpt.value = 'end';
+    endOpt.textContent = 'В конец главы';
+    endOpt.selected = true;
+    sel.appendChild(endOpt);
+  }
+
+  function pwSetStatus(text, color) {
+    var el = document.getElementById('pwStatus');
+    if (el) { el.textContent = text || ''; el.style.color = color || '#6b7280'; }
+  }
+
+  function pwGenerate(rewriteFeedback) {
+    var thesis = (document.getElementById('pwThesis').value || '').trim();
+    if (thesis.length < 5) { toast('Тезис: минимум 5 знаков', 4000); return; }
+    var sel = document.getElementById('pwAfterIdx');
+    var raw = sel.value;
+    var after_para_idx;
+    if (raw === 'end') after_para_idx = null;
+    else if (raw === '-1') after_para_idx = -1;
+    else after_para_idx = parseInt(raw, 10);
+
+    var body = { chapter_id: CURRENT_CHAPTER, thesis: thesis, after_para_idx: after_para_idx };
+    if (rewriteFeedback) body.rewrite_feedback = rewriteFeedback;
+
+    pwSetStatus('Соавтор думает (~1 мин)…', '#7855e8');
+    var btn = document.getElementById('pwGenerateBtn');
+    if (btn) btn.disabled = true;
+
+    fetch('/api/chapter/write-paragraph', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (btn) btn.disabled = false;
+        if (d.error) {
+          pwSetStatus('Ошибка: ' + d.error, '#dc2626');
+          toast('Соавтор не справился: ' + d.error, 6000);
+          return;
+        }
+        pwSetStatus('Готов проект параграфа. Реши: принять, править, переписать заново или пропустить.', '#16a34a');
+        PW_LAST_DATA = d;
+        pwRenderResult(d);
+      })
+      .catch(function(e) {
+        if (btn) btn.disabled = false;
+        pwSetStatus('Сеть: ' + e.message, '#dc2626');
+      });
+  }
+
+  function pwRenderResult(d) {
+    var host = document.getElementById('pwResultHost');
+    if (!host) return;
+    var html = '<div style="background:#fffbeb;border:2px solid #f59e0b;border-radius:8px;padding:16px;">';
+    html += '<div style="margin-bottom:10px;font-size:12px;color:#92400e;font-weight:600;">';
+    html += 'Тезис: ' + esc(d.thesis);
+    if (d.register) html += ' · регистр: ' + esc(d.register);
+    html += '</div>';
+
+    if ((d.voice_quotes_available || []).length) {
+      var usedIdx = (d.voice_sources_used || []).map(function(x) { return parseInt(x,10) - 1; });
+      html += '<details style="margin-bottom:10px;"><summary style="cursor:pointer;font-size:13px;color:#374151;font-weight:600;">📜 Твои голосовые цитаты которые AI читал (' + d.voice_quotes_available.length + ')</summary>';
+      html += '<div style="margin-top:8px;padding:10px;background:#fff;border-radius:4px;border:1px solid #e5e7eb;max-height:240px;overflow-y:auto;font-size:13px;">';
+      d.voice_quotes_available.forEach(function(q, i) {
+        var used = usedIdx.indexOf(i) >= 0;
+        html += '<div style="padding:6px 0;border-bottom:1px solid #f3f4f6;">';
+        html += '<div style="font-size:11px;color:#6b7280;">' + esc(q.source || '') + (used ? ' · <b style="color:#16a34a;">использована</b>' : '') + '</div>';
+        html += '<div>' + esc(q.text) + '</div></div>';
+      });
+      html += '</div></details>';
+    }
+
+    if ((d.voice_guard_warnings || []).length) {
+      html += '<div style="margin-bottom:10px;padding:8px;background:#fee2e2;border:1px solid #dc2626;border-radius:4px;font-size:12px;color:#991b1b;">';
+      html += '⚠️ Voice Guard заметил в AI-проекте: ' + d.voice_guard_warnings.map(esc).join(' · ');
+      html += '</div>';
+    }
+    if ((d.ai_warnings || []).length) {
+      html += '<div style="margin-bottom:10px;padding:8px;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;font-size:12px;color:#92400e;">';
+      html += '🛈 AI честно сказал: ' + d.ai_warnings.map(esc).join(' · ');
+      html += '</div>';
+    }
+
+    html += '<div style="background:white;padding:14px;border-radius:6px;border-left:4px solid #f59e0b;font-size:15px;line-height:1.6;" id="pwDraftText" data-text="' + esc(d.paragraph) + '">';
+    html += esc(d.paragraph);
+    html += '</div>';
+
+    html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">';
+    html += '<button class="btn btn-primary" onclick="pwDecide(\'accept\')">✓ Принять</button>';
+    html += '<button class="btn btn-secondary" onclick="pwOpenEditor()">✎ Править руками</button>';
+    html += '<button class="btn btn-ghost" onclick="pwAskRewrite()">↻ Переписать заново</button>';
+    html += '<button class="btn btn-ghost" onclick="pwDecide(\'skip\')">✕ Пропустить</button>';
+    html += '</div>';
+    html += '</div>';
+    host.innerHTML = html;
+  }
+
+  function pwOpenEditor() {
+    if (!PW_LAST_DATA) return;
+    var host = document.getElementById('pwResultHost');
+    if (!host) return;
+    var current = PW_LAST_DATA.paragraph;
+    var html = '<div style="background:#fffbeb;border:2px solid #f59e0b;border-radius:8px;padding:16px;">';
+    html += '<div style="font-size:13px;color:#92400e;font-weight:600;margin-bottom:8px;">Правь параграф руками. Сохрани когда готов.</div>';
+    html += '<textarea id="pwEditTextarea" rows="10" style="width:100%;padding:12px;border:1px solid #d1d5db;border-radius:4px;font-family:inherit;font-size:15px;line-height:1.6;">' + esc(current) + '</textarea>';
+    html += '<div style="margin-top:12px;display:flex;gap:8px;">';
+    html += '<button class="btn btn-primary" onclick="pwDecide(\'edit\')">💾 Сохранить мою версию</button>';
+    html += '<button class="btn btn-ghost" onclick="pwRenderResult(PW_LAST_DATA)">← Назад к AI-проекту</button>';
+    html += '</div>';
+    html += '</div>';
+    host.innerHTML = html;
+    setTimeout(function() {
+      var ta = document.getElementById('pwEditTextarea');
+      if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    }, 80);
+  }
+
+  function pwAskRewrite() {
+    var feedback = prompt('Что переписать? (Опционально — скажи AI что не так, и попробуем заново)', '');
+    if (feedback === null) return; // отменил
+    pwGenerate(feedback || '');
+  }
+
+  function pwDecide(decision) {
+    if (!PW_LAST_DATA) return;
+    var thesis = PW_LAST_DATA.thesis;
+    var after_para_idx = PW_LAST_DATA.after_para_idx;
+    var text = PW_LAST_DATA.paragraph;
+    var edited_from_ai = false;
+    if (decision === 'edit') {
+      var ta = document.getElementById('pwEditTextarea');
+      if (!ta) { toast('Не нашёл textarea', 4000); return; }
+      text = (ta.value || '').trim();
+      if (text.length < 20) { toast('Параграф слишком короткий', 4000); return; }
+      edited_from_ai = true;
+    }
+    var body = {
+      chapter_id: CURRENT_CHAPTER,
+      paragraph_text: decision === 'skip' ? '' : text,
+      after_para_idx: after_para_idx,
+      decision: decision,
+      thesis: thesis,
+      edited_from_ai: edited_from_ai,
+    };
+    pwSetStatus('Сохраняю…', '#7855e8');
+    fetch('/api/chapter/insert-paragraph', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (r.error) { pwSetStatus('Ошибка: ' + r.error, '#dc2626'); return; }
+        if (decision === 'skip') {
+          pwSetStatus('Пропущен. Можешь дать новый тезис.', '#6b7280');
+        } else {
+          pwSetStatus('Параграф добавлен в главу (всего ' + r.total_paragraphs + ').', '#16a34a');
+          // Обновляем draft + select
+          loadChapter(CURRENT_CHAPTER);
+        }
+        document.getElementById('pwResultHost').innerHTML = '';
+        document.getElementById('pwThesis').value = '';
+        PW_LAST_DATA = null;
+      })
+      .catch(function(e) { pwSetStatus('Сеть: ' + e.message, '#dc2626'); });
+  }
+
   function startAnalysis() {
     if (!CURRENT_CHAPTER) {
       toast('Сначала выбери главу');
@@ -2799,6 +3032,13 @@
     /* Фаза 3: Мастер-аудит */
     var mab = document.getElementById('masterAuditBtn');
     if (mab) mab.addEventListener('click', startMasterAudit);
+    /* CODEX 3: Соавтор-упаковщик */
+    var pwb = document.getElementById('paragraphWriterBtn');
+    if (pwb) pwb.addEventListener('click', openParagraphWriter);
+    var pwc = document.getElementById('paragraphWriterCloseBtn');
+    if (pwc) pwc.addEventListener('click', closeParagraphWriter);
+    var pwg = document.getElementById('pwGenerateBtn');
+    if (pwg) pwg.addEventListener('click', function() { pwGenerate(null); });
     var prb = document.getElementById('personasRunBtn');
     if (prb) prb.addEventListener('click', startPersonas);
     /* UC-119: editor-журналист хендлеры */

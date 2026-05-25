@@ -227,6 +227,12 @@ class CodexV2Handler(http.server.BaseHTTPRequestHandler):
         # ФАЗА 3 (2026-05-24): Мастер-аудитор — один Opus, 3-5 правок, голос Pavel-а в substrate
         if path == "/api/chapter/master-audit":
             return self._master_audit()
+        # CODEX 3 (2026-05-24): Paragraph Writer — AI пишет один параграф из тезиса + цитат Pavel-а
+        if path == "/api/chapter/write-paragraph":
+            return self._write_paragraph()
+        # CODEX 3: вставка параграфа в draft.md после approval/edit
+        if path == "/api/chapter/insert-paragraph":
+            return self._insert_paragraph()
         if path == "/api/briefing/regenerate":
             """POST → пересоздать MORNING-BRIEFING.md прямо сейчас."""
             import subprocess
@@ -6188,6 +6194,380 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
         })
 
         return self._json(cache)
+
+    # ═══ CODEX 3 (2026-05-24): Paragraph Writer — AI пишет проект параграфа,
+    # ═══ Pavel принимает/правит/переписывает/пропускает. Никаких bulk-применений.
+    # ═══ Каждый параграф — одно сознательное решение.
+    def _write_paragraph(self):
+        """POST {chapter_id, thesis, after_para_idx?, rewrite_feedback?} →
+        AI пишет проект параграфа из голосовых Pavel-а по тезису. Возвращает
+        проект + использованные цитаты + контекст."""
+        import urllib.request, re as _re
+        from datetime import datetime, timezone
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+
+        chapter_id = req.get("chapter_id", "")
+        thesis = (req.get("thesis") or "").strip()
+        after_para_idx = req.get("after_para_idx")  # куда вставлять — может быть null
+        rewrite_feedback = (req.get("rewrite_feedback") or "").strip()
+
+        if not thesis or len(thesis) < 5:
+            return self._json({"error": "thesis required (минимум 5 знаков)"}, 400)
+
+        m = _re.match(r"^(book-\d+|book-[a-z][a-z0-9-]*?|prologue|epilogue|ustav|appendices)-ch-(\d+)$", chapter_id)
+        if not m:
+            return self._json({"error": "bad chapter_id"}, 400)
+        book_id = m.group(1)
+        ch_dir = DATA_ROOT / "chapters" / book_id / chapter_id
+
+        # OAuth
+        env_file = Path.home() / ".cc-memory-bridge/.env"
+        token = None
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
+                    token = line.split("=", 1)[1].strip()
+                    break
+        if not token:
+            return self._json({"error": "no oauth token"}, 500)
+
+        # Регистрируем активный job
+        self._active_job_register(chapter_id, "write-paragraph", eta_seconds=60)
+
+        # Substrate — общий контекст книги
+        substrate = self._pavel_substrate(chapter_id, max_total_chars=18000)
+
+        # Релевантные голосовые цитаты ПО ТЕЗИСУ (узкий поиск)
+        thesis_quotes = self._chat_index_match_text(thesis, top_n=6, snippet_chars=600)
+        quotes_block = ""
+        if thesis_quotes:
+            quotes_block = "\n\n# ТВОИ ГОЛОСОВЫЕ ЦИТАТЫ ПО ЭТОМУ ТЕЗИСУ:\n\n" + "\n\n".join(
+                f"### Цитата {i+1} (источник: {q['source']})\n{q['text']}"
+                for i, q in enumerate(thesis_quotes)
+            )
+
+        # Текущий draft (если есть) для контекста соседних параграфов
+        draft_file = ch_dir / "draft.md"
+        neighbor_context = ""
+        if draft_file.exists():
+            try:
+                draft_text = draft_file.read_text(encoding="utf-8")
+                paras = [p.strip() for p in draft_text.split("\n\n") if p.strip()]
+                if after_para_idx is not None and isinstance(after_para_idx, int) and 0 <= after_para_idx < len(paras):
+                    before = paras[after_para_idx] if after_para_idx < len(paras) else ""
+                    after = paras[after_para_idx + 1] if after_para_idx + 1 < len(paras) else ""
+                    if before or after:
+                        neighbor_context = "\n\n# СОСЕДНИЕ ПАРАГРАФЫ (для согласования стиля и переходов):\n"
+                        if before:
+                            neighbor_context += f"\n## ДО (параграф {after_para_idx}):\n{before[:600]}"
+                        if after:
+                            neighbor_context += f"\n## ПОСЛЕ (параграф {after_para_idx + 2}):\n{after[:600]}"
+            except Exception:
+                pass
+
+        rewrite_block = ""
+        if rewrite_feedback:
+            rewrite_block = (
+                "\n\n# ПРЕДЫДУЩАЯ ПОПЫТКА БЫЛА ОТВЕРГНУТА\n\n"
+                f"Pavel сказал: «{rewrite_feedback}»\n\n"
+                "Учти это при новом проекте."
+            )
+
+        system = (
+            "Ты — соавтор-упаковщик Сакрального Кодекса Микомистицизма Pavel-а Хилингода.\n\n"
+            "Pavel — целитель, не писатель. Он диктует идеи голосом и в чатах. Твоя задача — упаковать "
+            "одну конкретную идею (тезис) в ОДИН художественный параграф 150-300 слов, используя ЕГО "
+            "голосовые цитаты как первоисточник.\n\n"
+            "ПРАВИЛА:\n"
+            "  • Пиши ОДИН параграф, не два, не три. Не используй markdown заголовки.\n"
+            "  • 150-300 слов. Не больше.\n"
+            "  • Голос: «Я — Великий Дух Грибов» (прямая речь Духа) или «Я — Хилингод» (свидетельство).\n"
+            "  • Если в цитатах Pavel говорит в одном из этих регистров — сохраняй именно его выбор.\n"
+            "  • Никаких тире (— и –). Только запятые или точки.\n"
+            "  • Никаких AI-клише: «представляют собой», «в отличие от», «таким образом», «при этом», «не только X но и Y», «важно понимать», «можно сказать».\n"
+            "  • Никаких вымышленных героев (Анна, Михаил, Иоанн из Анжера).\n"
+            "  • Никакой науки (HRV, дофамин, кортизол, исследования).\n"
+            "  • Сохраняй анафоры, троичные перечисления, торжественные глаголы Pavel-а.\n"
+            "  • Не пиши «вот что я сделаю», «давайте разберём», «начнём с» — это AI-структурирование, не Pavel.\n"
+            "  • Pavel говорит как видящий, не как лектор. Утверждение, не рассуждение.\n\n"
+            "ИСТОЧНИК:\n"
+            "  Главный — цитаты Pavel-а по этому тезису (ниже). Бери из них образы, ритм, конкретные слова.\n"
+            "  Substrate — для общего контекста доктрины и эталона голоса.\n"
+            "  Соседние параграфы — чтобы переход был плавным.\n\n"
+            "ВАЖНОЕ: НЕ ВЫДУМЫВАЙ контента которого нет в цитатах. Если у Pavel-а нет в материале "
+            "конкретной идеи для этого тезиса — лучше напиши короче и проще. Никогда не сочиняй за него.\n\n"
+            "ВЕРНИ СТРОГО JSON:\n"
+            '{ "paragraph": "текст параграфа целиком, без переносов", '
+            '"voice_sources_used": [<номера цитат которые ты реально использовал>], '
+            '"register": "spirit|hilingod", '
+            '"warnings": ["если что-то не получилось хорошо — честно скажи"] }\n\n'
+            "Без преамбулы, сразу JSON.\n\n"
+            f"=== SUBSTRATE PAVEL-А ===\n\n{substrate}"
+        )
+
+        user = (
+            f"# ТЕЗИС ПАРАГРАФА\n\n«{thesis}»\n"
+            + quotes_block
+            + neighbor_context
+            + rewrite_block
+            + "\n\nНапиши проект параграфа. JSON."
+        )
+
+        body_req = {
+            "model": "claude-opus-4-7",
+            "max_tokens": 2500,
+            "thinking": {"type": "enabled", "budget_tokens": 2000},
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+        }
+        req_obj = urllib.request.Request(
+            "http://127.0.0.1:8787/v1/messages",
+            data=json.dumps(body_req).encode("utf-8"),
+            headers={
+                "x-api-key": token,
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": "interleaved-thinking-2025-05-14",
+                "content-type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req_obj, timeout=180) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            self._active_job_complete(chapter_id, "write-paragraph", error=str(e))
+            return self._json({"error": f"Opus: {e}"}, 500)
+
+        raw = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+            if raw.startswith("json"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+        raw = raw.strip()
+
+        try:
+            parsed = json.loads(raw)
+        except Exception as e:
+            self._active_job_complete(chapter_id, "write-paragraph", error=f"parse: {e}")
+            return self._json({"error": f"parse: {e}", "raw": raw[:1500]}, 500)
+
+        paragraph = (parsed.get("paragraph") or "").strip()
+        if not paragraph:
+            self._active_job_complete(chapter_id, "write-paragraph", error="empty paragraph")
+            return self._json({"error": "AI не вернул параграф", "raw": raw[:500]}, 500)
+
+        # Статический voice-guard — отлавливаем что Opus всё же пробил защиту
+        guard_warnings = self._voice_guard_check(paragraph)
+
+        ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        result = {
+            "ok": True,
+            "chapter_id": chapter_id,
+            "thesis": thesis,
+            "paragraph": paragraph,
+            "register": parsed.get("register", ""),
+            "voice_sources_used": parsed.get("voice_sources_used") or [],
+            "voice_quotes_available": thesis_quotes,
+            "after_para_idx": after_para_idx,
+            "ai_warnings": parsed.get("warnings") or [],
+            "voice_guard_warnings": guard_warnings,
+            "ts": ts_iso,
+            "usage": data.get("usage", {}),
+        }
+
+        self._active_job_complete(chapter_id, "write-paragraph", result={
+            "chars": len(paragraph),
+            "guard_warnings": len(guard_warnings),
+        })
+
+        return self._json(result)
+
+    def _voice_guard_check(self, text: str) -> list:
+        """Статический линтер: возвращает список нарушений Pavel-канона в тексте.
+        Это второй слой защиты — даже если Opus не послушал substrate, мы ловим."""
+        import re as _re
+        warnings = []
+        if "—" in text or "–" in text:
+            warnings.append("UC-76: тире в тексте (запрещено)")
+        ai_cliches = [
+            "представляют собой", "представляет собой",
+            "в отличие от", "таким образом", "при этом",
+            "не только", "важно понимать", "можно сказать",
+            "стоит отметить", "следует подчеркнуть",
+        ]
+        for c in ai_cliches:
+            if c in text.lower():
+                warnings.append(f"AI-клише: «{c}»")
+        sci_terms = ["HRV", "5-HT2A", "дофамин", "кортизол", "мелатонин", "серотонин", "PHQ-9"]
+        for t in sci_terms:
+            if t in text:
+                warnings.append(f"научный термин: «{t}» (книга мистическая, не научная)")
+        # Буллет-списки идей
+        if _re.search(r"^\s*[-•]\s+", text, _re.M):
+            warnings.append("буллет-список (Pavel-rule: списки только для явных инструкций)")
+        return warnings
+
+    def _chat_index_match_text(self, query_text: str, top_n: int = 6, snippet_chars: int = 600) -> list:
+        """Поиск по voice-index.jsonl по произвольному тексту (тезис, фраза).
+        Возвращает list of {source, text} top_n совпадений."""
+        idx_path = Path.home() / "Desktop/Codex-Content/voice-index.jsonl"
+        if not idx_path.exists():
+            return []
+        keywords = self._extract_keywords(query_text)
+        if not keywords:
+            return []
+        scored = []
+        try:
+            with idx_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line)
+                    except Exception:
+                        continue
+                    text = rec.get("text", "")
+                    if not text:
+                        continue
+                    text_low = text.lower()
+                    score = sum(1 for kw in keywords if kw in text_low)
+                    if score >= 2:
+                        scored.append((score, rec.get("ts", ""), text, rec.get("conv_name", "")))
+        except Exception:
+            return []
+        scored.sort(key=lambda r: (-r[0], r[1]))
+        out = []
+        for score, ts, text, conv_name in scored[:top_n]:
+            out.append({
+                "source": f"{ts[:10]} (matches: {score})" + (f" — {conv_name[:40]}" if conv_name else ""),
+                "text": text[:snippet_chars].strip(),
+                "score": score,
+            })
+        return out
+
+    def _insert_paragraph(self):
+        """POST {chapter_id, paragraph_text, after_para_idx, decision, thesis?, edited_from_ai?} →
+        вставляет параграф в draft.md и пишет лог решения."""
+        import re as _re
+        from datetime import datetime, timezone
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+
+        chapter_id = req.get("chapter_id", "")
+        paragraph_text = (req.get("paragraph_text") or "").strip()
+        after_para_idx = req.get("after_para_idx")
+        decision = req.get("decision", "accept")  # accept | edit | rewrite | skip
+        thesis = req.get("thesis", "")
+        edited_from_ai = req.get("edited_from_ai", False)
+
+        m = _re.match(r"^(book-\d+|book-[a-z][a-z0-9-]*?|prologue|epilogue|ustav|appendices)-ch-(\d+)$", chapter_id)
+        if not m:
+            return self._json({"error": "bad chapter_id"}, 400)
+        book_id = m.group(1)
+        ch_dir = DATA_ROOT / "chapters" / book_id / chapter_id
+        ch_dir.mkdir(parents=True, exist_ok=True)
+        draft_file = ch_dir / "draft.md"
+
+        ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts_compact = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+        # Если decision == skip — просто логируем и выходим
+        decisions_dir = DATA_ROOT / "data/paragraph-decisions"
+        decisions_dir.mkdir(parents=True, exist_ok=True)
+        log_file = decisions_dir / f"{chapter_id}.jsonl"
+        decision_rec = {
+            "ts": ts_iso,
+            "chapter_id": chapter_id,
+            "thesis": thesis,
+            "decision": decision,
+            "edited_from_ai": edited_from_ai,
+            "after_para_idx": after_para_idx,
+            "char_count": len(paragraph_text),
+        }
+
+        if decision == "skip":
+            with log_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(decision_rec, ensure_ascii=False) + "\n")
+            return self._json({"ok": True, "decision": "skip", "draft_changed": False})
+
+        if not paragraph_text or len(paragraph_text) < 20:
+            return self._json({"error": "paragraph_text слишком короткий"}, 400)
+
+        # Бэкап + вставка
+        if draft_file.exists():
+            current = draft_file.read_text(encoding="utf-8")
+        else:
+            current = ""
+
+        # Backup
+        history_dir = ch_dir / "history"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        if current:
+            backup_path = history_dir / f"{ts_compact}-pre-paragraph-insert.md"
+            backup_path.write_text(current, encoding="utf-8")
+        else:
+            backup_path = None
+
+        # Вставка
+        paras = [p.strip() for p in current.split("\n\n") if p.strip()]
+        insert_at = None
+        if after_para_idx is None or not isinstance(after_para_idx, int):
+            # В конец
+            paras.append(paragraph_text)
+            insert_at = len(paras) - 1
+        elif after_para_idx < 0:
+            paras.insert(0, paragraph_text)
+            insert_at = 0
+        elif after_para_idx >= len(paras):
+            paras.append(paragraph_text)
+            insert_at = len(paras) - 1
+        else:
+            paras.insert(after_para_idx + 1, paragraph_text)
+            insert_at = after_para_idx + 1
+
+        new_draft = "\n\n".join(paras) + "\n"
+        draft_file.write_text(new_draft, encoding="utf-8")
+
+        # Лог решения
+        decision_rec["inserted_at_idx"] = insert_at
+        decision_rec["backup"] = backup_path.name if backup_path else None
+        with log_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(decision_rec, ensure_ascii=False) + "\n")
+
+        # Событие
+        events_log = DATA_ROOT / ".codex/events.jsonl"
+        events_log.parent.mkdir(parents=True, exist_ok=True)
+        with events_log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "ts": ts_iso,
+                "type": "paragraph_inserted",
+                "target": chapter_id,
+                "payload": {
+                    "decision": decision,
+                    "edited_from_ai": edited_from_ai,
+                    "inserted_at_idx": insert_at,
+                    "chars": len(paragraph_text),
+                },
+            }, ensure_ascii=False) + "\n")
+
+        return self._json({
+            "ok": True,
+            "decision": decision,
+            "edited_from_ai": edited_from_ai,
+            "inserted_at_idx": insert_at,
+            "total_paragraphs": len(paras),
+            "backup": backup_path.name if backup_path else None,
+        })
 
     # ─── UC-30: WIZARD — глава с нуля через Q&A (Pavel 2026-05-20) ──
     # Pavel: «функция написать главу с нуля. Я диктую идеи. Opus задаёт вопросы.
