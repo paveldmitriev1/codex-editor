@@ -329,7 +329,7 @@
         <option value="">Загружаю главы…</option>
       </select>
       <span class="save-status" id="saveStatus">из источника</span>
-      <button class="btn btn-primary btn-sm" id="saveBtn" disabled>Сохранить</button>
+      <button class="btn btn-primary btn-sm" id="saveBtn" disabled title="Активируется когда ты сделал правку. Двойной клик на параграф → пишешь → сохраняется автоматически каждые 1.5 секунды. Эту кнопку можно использовать только для финального manual save.">Сохранить</button>
       <button class="btn btn-ghost btn-sm" id="undoBtn" disabled title="Откатить (⌘Z)">↶</button>
       <button class="btn btn-ghost btn-sm" id="redoBtn" disabled title="Накатить (⌘⇧Z)">↷</button>
       <button class="btn btn-secondary btn-sm" id="finalizeBtn" disabled>Финализировать</button>
@@ -338,6 +338,37 @@
     </div>
 
     <div class="chapter-meta" id="chapterMeta"></div>
+
+    <!-- Pavel 2026-05-25: Шедевр-статус всегда сверху, видный, понятный -->
+    <div id="masterpieceStatusBar" style="display:none;background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;border-radius:10px;padding:14px 18px;margin:12px 0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:240px;">
+          <div style="font-size:11px;color:#78350f;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:4px;">Шедевр-статус</div>
+          <div id="masterpieceVerdict" style="font-size:20px;font-weight:700;color:#78350f;">—</div>
+          <div id="masterpieceHint" style="font-size:12px;color:#92400e;margin-top:3px;">Цель: 80+ проход, 95+ шедевр на 1000 лет</div>
+        </div>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+          <div style="text-align:center;min-width:80px;">
+            <div style="font-size:10px;color:#78350f;font-weight:600;">⭐ МАСТЕР</div>
+            <div id="masterpieceMasterScore" style="font-size:28px;font-weight:800;color:#78350f;line-height:1;">—</div>
+            <div style="font-size:10px;color:#92400e;">/100</div>
+          </div>
+          <div style="text-align:center;min-width:80px;">
+            <div style="font-size:10px;color:#78350f;font-weight:600;">🤖 AI-РИСК</div>
+            <div id="masterpieceAiScore" style="font-size:28px;font-weight:800;line-height:1;">—</div>
+            <div style="font-size:10px;color:#92400e;">/100</div>
+          </div>
+          <div style="text-align:center;min-width:120px;">
+            <div style="font-size:10px;color:#78350f;font-weight:600;">ИТОГ</div>
+            <div id="masterpieceFinal" style="font-size:28px;font-weight:800;color:#78350f;line-height:1;">—</div>
+            <div style="font-size:10px;color:#92400e;">/100</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:10px;height:8px;background:#fff;border-radius:4px;overflow:hidden;">
+        <div id="masterpieceProgressBar" style="height:100%;background:linear-gradient(90deg,#f59e0b,#dc2626);width:0%;transition:width 0.5s;"></div>
+      </div>
+    </div>
 
     <section id="analysisPanel" class="analysis-panel">
       <header class="analysis-panel-head">
@@ -1190,6 +1221,83 @@
       });
   }
 
+  /* Pavel 2026-05-25: видимый Шедевр-статус сверху главы. Master + AI + итог. */
+  function updateMasterpieceStatus() {
+    if (!CURRENT_CHAPTER) return;
+    var bar = document.getElementById('masterpieceStatusBar');
+    if (!bar) return;
+    bar.style.display = '';
+
+    var masterScore = null;
+    var aiScore = null;
+
+    /* Master score из cache */
+    fetch('/api/chapter/master-audit?chapter_id=' + encodeURIComponent(CURRENT_CHAPTER))
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) {
+        if (d && d.score_estimate != null) masterScore = d.score_estimate;
+        renderMasterpieceStatus(masterScore, aiScore);
+      })
+      .catch(function() { renderMasterpieceStatus(masterScore, aiScore); });
+
+    /* AI-detection score */
+    fetch('/api/chapter/ai-score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER })
+    })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) {
+        if (d && typeof d.score === 'number') aiScore = d.score;
+        renderMasterpieceStatus(masterScore, aiScore);
+      })
+      .catch(function() {});
+  }
+  function renderMasterpieceStatus(masterScore, aiScore) {
+    var mEl = document.getElementById('masterpieceMasterScore');
+    var aEl = document.getElementById('masterpieceAiScore');
+    var fEl = document.getElementById('masterpieceFinal');
+    var vEl = document.getElementById('masterpieceVerdict');
+    var bar = document.getElementById('masterpieceProgressBar');
+    var hint = document.getElementById('masterpieceHint');
+
+    if (mEl) mEl.textContent = masterScore != null ? masterScore : '—';
+    if (aEl) {
+      aEl.textContent = aiScore != null ? aiScore : '—';
+      aEl.style.color = aiScore != null && aiScore >= 50 ? '#dc2626' : (aiScore != null && aiScore >= 30 ? '#d97706' : '#16a34a');
+    }
+    /* ИТОГ: Master минус (AI penalty). Чем больше AI — тем хуже */
+    var final = null;
+    if (masterScore != null) {
+      final = masterScore;
+      if (aiScore != null && aiScore >= 50) final = Math.max(0, masterScore - 20);
+      else if (aiScore != null && aiScore >= 30) final = Math.max(0, masterScore - 10);
+    }
+    if (fEl) fEl.textContent = final != null ? final : '—';
+
+    /* Шедевр-статус */
+    var verdict = '—';
+    var color = '#78350f';
+    if (final != null) {
+      if (final >= 95) { verdict = '🏆 ШЕДЕВР'; color = '#15803d'; }
+      else if (final >= 80) { verdict = '✓ ПРОХОДНОЙ'; color = '#16a34a'; }
+      else if (final >= 60) { verdict = '🟡 ПОЧТИ ГОТОВ'; color = '#ca8a04'; }
+      else if (final >= 40) { verdict = '🟠 ЧЕРНОВИК'; color = '#ea580c'; }
+      else { verdict = '🔴 СЫРОЙ ТЕКСТ'; color = '#dc2626'; }
+    }
+    if (vEl) {
+      vEl.textContent = verdict;
+      vEl.style.color = color;
+    }
+    if (hint) {
+      if (final == null) hint.textContent = 'Цель: 80+ проход, 95+ шедевр. Запусти ⭐ Мастер и Критиков чтобы получить оценку.';
+      else if (final >= 95) hint.textContent = 'Это шедевр на 1000 лет. Можно финализировать.';
+      else if (final >= 80) hint.textContent = 'Проходной уровень. Можешь финализировать или продолжить полировку до шедевра.';
+      else hint.textContent = 'До прохода (80) ещё ' + (80 - final) + ' пунктов. Запусти Мастер и применяй правки.';
+    }
+    if (bar) bar.style.width = Math.min(100, final || 0) + '%';
+  }
+
   function loadChapter(chapterId) {
     setSaveStatus('saving', 'загрузка главы');
     fetch('/api/chapter/' + encodeURIComponent(chapterId) + '/draft')
@@ -1246,6 +1354,8 @@
         startActiveJobsWatcher();
         /* Фаза 3: подтянем мастер-аудит из кэша если был */
         loadMasterAuditCache();
+        /* Pavel 2026-05-25: Шедевр-статус сверху */
+        updateMasterpieceStatus();
       })
       .catch(function(e) {
         setSaveStatus('error', 'сеть');
