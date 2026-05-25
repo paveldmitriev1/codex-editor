@@ -243,6 +243,10 @@ class CodexV2Handler(http.server.BaseHTTPRequestHandler):
         # Прямая замена параграфа (используется master-audit Apply, без Opus)
         if path == "/api/chapter/replace-paragraph":
             return self._replace_paragraph()
+        # Pavel 2026-05-25: после inline-правки Pavel-а — Opus проверяет
+        # опечатки/грамматику/ритм, возвращает мелкие fixes если есть.
+        if path == "/api/chapter/proofread-paragraph":
+            return self._proofread_paragraph()
         # Pavel 2026-05-25: после правок сверить с оригиналом + голосовыми
         if path == "/api/chapter/post-edit-audit":
             return self._post_edit_audit()
@@ -7765,6 +7769,93 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             "restored_from": backup_path.name,
             "restored_chars": len(restored),
             "ts": ts_iso,
+        })
+
+    def _proofread_paragraph(self):
+        """POST {chapter_id, para_idx, text} → Opus читает текст после Pavel-овской
+        правки, проверяет опечатки + грамматику + микро-предложения + тире + ритм.
+        Возвращает {ok, has_issues, issues:[], fixed:'...'} если есть что улучшить."""
+        import urllib.request, re as _re
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+        chapter_id = req.get("chapter_id", "")
+        para_idx = req.get("para_idx")
+        text = (req.get("text") or "").strip()
+        if not chapter_id or para_idx is None or len(text) < 30:
+            return self._json({"ok": True, "has_issues": False, "reason": "skip (short text)"})
+
+        # OAuth
+        env_file = Path.home() / ".cc-memory-bridge/.env"
+        token = None
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
+                    token = line.split("=", 1)[1].strip()
+                    break
+        if not token:
+            return self._json({"ok": True, "has_issues": False, "reason": "no token"})
+
+        system = (
+            "Ты — корректор Кодекса Микомистицизма Pavel-а Хилингода. "
+            "Pavel только что вручную отредактировал параграф. Твоя задача — "
+            "ПРОЧИТАТЬ его правку и найти ТОЛЬКО МЕЛКИЕ технические ошибки:\n"
+            "  • опечатки\n"
+            "  • грамматические ошибки\n"
+            "  • двойные пробелы / пропущенные пробелы\n"
+            "  • тире (— и –) — должны быть заменены на запятые или точки\n"
+            "  • микро-предложения (3+ подряд ≤7 слов) — слить в одно длинное\n\n"
+            "НЕ переписывай содержание. НЕ меняй стиль. НЕ добавляй ничего от себя. "
+            "НЕ исправляй то что выглядит как намеренный выбор Pavel-а (повторы, анафоры).\n\n"
+            "Если параграф ЧИСТЫЙ — верни {\"has_issues\": false}.\n"
+            "Если есть ошибки — верни:\n"
+            '{ "has_issues": true, "issues": ["опечатка: ...", "тире → запятая"], '
+            '"fixed": "<исправленный текст параграфа, минимальные изменения>" }\n\n'
+            "Только JSON. Без преамбулы."
+        )
+
+        body_req = {
+            "model": "claude-opus-4-7",
+            "max_tokens": 1500,
+            "system": system,
+            "messages": [{"role": "user", "content": f"Параграф:\n\n{text}"}],
+        }
+        req_obj = urllib.request.Request(
+            "http://127.0.0.1:8787/v1/messages",
+            data=json.dumps(body_req).encode("utf-8"),
+            headers={
+                "x-api-key": token,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req_obj, timeout=60) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            return self._json({"ok": True, "has_issues": False, "error": f"opus: {e}"})
+
+        raw = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+            if raw.startswith("json"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+        try:
+            parsed = json.loads(raw.strip())
+        except Exception:
+            return self._json({"ok": True, "has_issues": False, "error": "parse"})
+
+        return self._json({
+            "ok": True,
+            "has_issues": bool(parsed.get("has_issues")),
+            "issues": parsed.get("issues") or [],
+            "fixed": parsed.get("fixed") or "",
         })
 
     def _replace_paragraph(self):

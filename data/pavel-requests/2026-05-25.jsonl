@@ -1,0 +1,20 @@
+{"ts":"2026-05-25T04:00","request":"продолжай 4-часовой план UC-66 + UC-67","status":"done"}
+{"ts":"2026-05-25T05:00","request":"Build Book Reader для финальной полировки","status":"done","files":["app/static/book-reader.html","app/server.py"],"commits":["7bb474c","84cea46"]}
+{"ts":"2026-05-25T09:00","request":"страница не нужна, работа на сервере (async master-audit)","status":"done","commits":["2e2a7d2"]}
+{"ts":"2026-05-25T09:30","request":"проверь чтобы тебя не отключило ночью (watchdog)","status":"done"}
+{"ts":"2026-05-25T09:30","request":"в Хранилище важно ридер поставить","status":"done"}
+{"ts":"2026-05-25T13:00","request":"изучи если не сделали ошибок в кодекс 3","status":"done","commits":["7dd80af"]}
+{"ts":"2026-05-25T13:30","request":"что про RAG retrieval augmented generation","status":"done","note":"дал честный анализ, отложено до thesaurus теста"}
+{"ts":"2026-05-25T13:30","request":"делай сейчас (thesaurus + ch-17 reading list)","status":"done","commits":["92730bc"]}
+{"ts":"2026-05-25T14:00","request":"глубокий анализ редактора, прокликай все кнопки","status":"partial","note":"Tom стопал на 3 из 12, Pavel ругал, после возврата к работе нашёл КРИТИЧЕСКИЙ баг _matches NameError ломавший все Opus endpoints","commits":["e682bce","a3f435a"]}
+{"ts":"2026-05-25T18:00","request":"когда писать главы","status":"done","note":"book-12 готова сегодня"}
+{"ts":"2026-05-25T19:15","request":"Refine не работает, текст пропал, ошибка сети","status":"done","note":"перепутал Refine textarea с insert. Полностью переделан UX + auto-save в localStorage","commits":["92453eb"]}
+{"ts":"2026-05-25T19:15","request":"я не понял как работает Соавтор и нужен ли он","status":"open","note":"Дал объяснение, предложил скрыть для непустых глав. Ждёт решения Pavel"}
+{"ts":"2026-05-25T19:15","request":"что делать с ТОП-5 (Reconciler)","status":"open","note":"Нужна кнопка Apply All Top-5. Не сделана"}
+{"ts":"2026-05-25T19:15","request":"ты должен работать всегда, бот каждые 5 мин","status":"done","note":"launchd ai.codex2.auto-agent + auto_idle_worker.py"}
+{"ts":"2026-05-25T19:15","request":"пропиши правила чтобы не тупил","status":"done","note":"13 правил в OPERATIONAL-CONTEXT.md"}
+{"ts":"2026-05-25T19:30","request":"двумя кликами в параграф редактирую с автосохранением","status":"in_progress"}
+{"ts":"2026-05-25T19:30","request":"после сохранения Opus проверяет и исправляет ошибки","status":"in_progress"}
+{"ts":"2026-05-25T19:30","request":"все мои задания собирай в отдельную папку","status":"done","note":"data/pavel-requests/ создана"}
+{"ts":"2026-05-25T19:30","request":"каждую ночь думай что улучшить и проигнорировано","status":"in_progress"}
+{"ts":"2026-05-25T19:30","request":"AUTO-AGENT TCC: дать /usr/bin/python3 Full Disk Access в Settings","status":"open","priority":"high","note":"Без этого launchd job-ы не могут читать ~/Desktop. Однократное действие Pavel-а на Mac."}

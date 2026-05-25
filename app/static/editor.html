@@ -740,12 +740,189 @@
     if (el.getAttribute('contenteditable') === 'true') return;
     el.setAttribute('contenteditable', 'true');
     el.focus();
+    /* Запомним исходный текст чтобы знать что Pavel поменял */
+    el._originalText = el.textContent;
+    /* Визуальный маркер «редактируется» */
+    el.style.outline = '2px dashed #7c3aed';
+    el.style.outlineOffset = '4px';
+
     el.addEventListener('input', markDirty);
-    el.addEventListener('blur', function() { el.removeAttribute('contenteditable'); }, { once: true });
+    /* Pavel 2026-05-25: автосохранение через debounce 1.5s. После остановки
+       печати → save в localStorage + POST replace-paragraph на сервер →
+       Opus proofread через 3s если нет новых правок. */
+    el.addEventListener('input', function() { scheduleAutoSaveParagraph(el); });
+
+    el.addEventListener('blur', function() {
+      el.removeAttribute('contenteditable');
+      el.style.outline = '';
+      el.style.outlineOffset = '';
+      /* Финальный save при blur — если был debounce-pending, сразу применяем */
+      flushAutoSaveParagraph(el);
+    }, { once: true });
     el.addEventListener('keydown', function(ev) {
-      if (ev.key === 'Escape') el.blur();
-      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') { el.blur(); doSave(); }
+      if (ev.key === 'Escape') {
+        /* Откат к исходному тексту */
+        if (el._originalText != null) el.textContent = el._originalText;
+        el.blur();
+      }
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') { el.blur(); }
     });
+  }
+
+  /* Debounced autosave + Opus proofread.
+     Pavel rule 2026-05-25: «двумя кликами на параграф — пишу — авто сохранение —
+     после сохранения Opus проверяет ошибки». */
+  var __paraSaveTimers = {};
+  var __paraProofreadTimers = {};
+  function scheduleAutoSaveParagraph(el) {
+    var idx = el.dataset.idx;
+    if (!idx || !CURRENT_CHAPTER) return;
+    /* Local backup сразу (защита от Failed-to-fetch) */
+    try {
+      localStorage.setItem('codex2.paraEdit.' + CURRENT_CHAPTER + '.' + idx, el.textContent);
+    } catch(e) {}
+    /* Debounce server save 1.5s */
+    if (__paraSaveTimers[idx]) clearTimeout(__paraSaveTimers[idx]);
+    __paraSaveTimers[idx] = setTimeout(function() {
+      saveParagraphNow(el);
+    }, 1500);
+  }
+  function flushAutoSaveParagraph(el) {
+    var idx = el.dataset.idx;
+    if (__paraSaveTimers[idx]) {
+      clearTimeout(__paraSaveTimers[idx]);
+      delete __paraSaveTimers[idx];
+      saveParagraphNow(el);
+    }
+  }
+  function saveParagraphNow(el) {
+    var idx = el.dataset.idx;
+    var newText = (el.textContent || '').trim();
+    var original = el._originalText || '';
+    if (!idx || !CURRENT_CHAPTER) return;
+    if (newText === original || newText.length < 5) return;
+    /* Индикатор: маленький badge справа от параграфа */
+    showParaSaveStatus(el, 'saving', 'сохраняю…');
+
+    fetch('/api/chapter/replace-paragraph', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapter_id: CURRENT_CHAPTER,
+        para_idx: parseInt(idx, 10),
+        new_text: newText,
+        source: 'pavel_inline_edit',
+      })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (!r.ok) {
+          showParaSaveStatus(el, 'error', 'не сохранён: ' + (r.error || '?'));
+          return;
+        }
+        showParaSaveStatus(el, 'saved', 'сохранён ' + new Date().toLocaleTimeString('ru-RU').slice(0, 5));
+        /* Очищаем localStorage backup — успешно отправлено */
+        try { localStorage.removeItem('codex2.paraEdit.' + CURRENT_CHAPTER + '.' + idx); } catch(e) {}
+        /* Обновим original — следующий edit сравнит с новым baseline */
+        el._originalText = newText;
+        /* Запустим Opus proofread с задержкой 3 сек — на случай если Pavel
+           продолжит править этот же параграф */
+        scheduleProofread(el, idx, newText);
+      })
+      .catch(function(err) {
+        showParaSaveStatus(el, 'error', 'сеть: ' + err.message + ' · текст в браузере сохранён');
+      });
+  }
+  function showParaSaveStatus(el, kind, msg) {
+    var existing = el.querySelector('.para-save-status');
+    if (existing) existing.remove();
+    var s = document.createElement('span');
+    s.className = 'para-save-status';
+    var bg = {saving:'#fef3c7', saved:'#dcfce7', error:'#fee2e2'}[kind] || '#f3f4f6';
+    var fg = {saving:'#78350f', saved:'#14532d', error:'#7f1d1d'}[kind] || '#374151';
+    s.style.cssText = 'display:inline-block;font-size:10px;margin-left:8px;padding:2px 7px;border-radius:10px;background:' + bg + ';color:' + fg + ';font-weight:600;';
+    s.textContent = msg;
+    el.appendChild(s);
+    if (kind === 'saved') {
+      setTimeout(function() { if (s.parentNode) s.remove(); }, 4000);
+    }
+  }
+  function scheduleProofread(el, idx, text) {
+    if (__paraProofreadTimers[idx]) clearTimeout(__paraProofreadTimers[idx]);
+    __paraProofreadTimers[idx] = setTimeout(function() {
+      runProofread(el, idx, text);
+    }, 3000);
+  }
+  function runProofread(el, idx, text) {
+    if (text.length < 30) return;
+    fetch('/api/chapter/proofread-paragraph', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapter_id: CURRENT_CHAPTER,
+        para_idx: parseInt(idx, 10),
+        text: text,
+      })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (!r.ok || !r.has_issues) return;
+        /* Показываем inline-баннер с предложением */
+        showProofreadCard(el, idx, r);
+      })
+      .catch(function() { /* proofread — необязательное, ошибки игнор */ });
+  }
+  function showProofreadCard(el, idx, r) {
+    var existing = el.parentNode.querySelector('.proofread-card-' + idx);
+    if (existing) existing.remove();
+    var card = document.createElement('div');
+    card.className = 'proofread-card-' + idx;
+    card.style.cssText = 'margin:4px 0 12px 0;padding:10px 12px;background:#eff6ff;border:1px solid #93c5fd;border-radius:6px;font-size:13px;';
+    var html = '<div style="color:#1e40af;font-weight:600;margin-bottom:6px;">📝 Опус нашёл мелкие правки</div>';
+    if (r.issues && r.issues.length) {
+      html += '<ul style="margin:6px 0 8px 18px;padding:0;color:#1e3a8a;font-size:12px;">';
+      r.issues.forEach(function(it) {
+        html += '<li>' + esc(it) + '</li>';
+      });
+      html += '</ul>';
+    }
+    if (r.fixed) {
+      html += '<div style="background:#fff;padding:8px;border-radius:4px;margin:6px 0;font-size:13px;line-height:1.5;">' + esc(r.fixed) + '</div>';
+      html += '<div style="display:flex;gap:8px;">';
+      html += '<button class="btn btn-primary btn-sm" onclick="applyProofread(' + idx + ',this)">Принять</button>';
+      html += '<button class="btn btn-ghost btn-sm" onclick="this.parentNode.parentNode.remove()">Оставить как есть</button>';
+      html += '</div>';
+      window['__proofread_' + idx] = r.fixed;
+    }
+    card.innerHTML = html;
+    el.parentNode.insertBefore(card, el.nextSibling);
+  }
+  function applyProofread(idx, btn) {
+    var fixed = window['__proofread_' + idx];
+    if (!fixed) return;
+    fetch('/api/chapter/replace-paragraph', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapter_id: CURRENT_CHAPTER,
+        para_idx: parseInt(idx, 10),
+        new_text: fixed,
+        source: 'opus_proofread_after_inline_edit',
+      })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (r.ok) {
+          toast('Применено', 2500);
+          loadChapter(CURRENT_CHAPTER);
+        } else {
+          toast('Ошибка: ' + (r.error || '?'), 5000);
+        }
+      });
+    if (btn) {
+      var card = btn.closest('[class^="proofread-card"]');
+      if (card) card.remove();
+    }
   }
 
   /* UC-100: per-paragraph popover */
@@ -1034,6 +1211,13 @@
         document.getElementById('finalizeBtn').disabled = false;
         var anBtn = document.getElementById('analyzeBtn');
         if (anBtn) anBtn.disabled = false;
+        /* Pavel 2026-05-25: Соавтор только для ПУСТЫХ глав (новых). Если есть
+           draft.md уже наговоренный — Соавтор не нужен, путает. */
+        var pwBtn = document.getElementById('paragraphWriterBtn');
+        if (pwBtn) {
+          var hasContent = (d.text || '').length > 200;
+          pwBtn.style.display = hasContent ? 'none' : '';
+        }
         var readBtn = document.getElementById('readBtn');
         readBtn.href = '/read/' + chapterId;
         readBtn.style.display = '';
