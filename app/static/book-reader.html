@@ -35,11 +35,11 @@
   </style>
 </head>
 <body>
-  <div id="sidebar"></div>
+  <div id="appSidebar"></div>
   <main class="br-container">
     <div class="br-main">
-      <h1 id="brTitle">Хранилище · Финальная Полировка</h1>
-      <div class="br-meta" id="brMeta">Pavel: место где готовые книги собираются · ты читаешь · оставляешь заметки на параграфы · финальный агент внедряет</div>
+      <h1 id="brTitle">Книга Целиком · Финальная Полировка</h1>
+      <div class="br-meta" id="brMeta">Место где готовые книги собираются. Читаешь — оставляешь заметки на параграфы — финальный агент внедряет правки через Opus.</div>
 
       <div class="br-book-select">
         <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">Книга:</label>
@@ -53,8 +53,8 @@
     </div>
 
     <aside class="br-notes-panel">
-      <h3>📝 Заметки <span id="brNotesCount" style="color:#6b7280;font-weight:normal;font-size:13px;"></span></h3>
-      <button class="br-polish-btn" id="brPolishBtn" style="display:none">⭐ Финальная Полировка через агента</button>
+      <h3>Заметки <span id="brNotesCount" style="color:#6b7280;font-weight:normal;font-size:13px;"></span></h3>
+      <button class="br-polish-btn" id="brPolishBtn" style="display:none">Финальная Полировка через агента</button>
       <div id="brPolishPlan"></div>
       <div id="brNotesList">
         <p style="color:#6b7280;font-size:13px;">Кликни на любой параграф чтобы добавить заметку. Заметки появятся здесь.</p>
@@ -142,7 +142,7 @@
           '<label><input type="radio" name="brKind" value="edit" checked> ✎ переписать</label>' +
           '<label><input type="radio" name="brKind" value="remove"> ✕ убрать</label>' +
           '<label><input type="radio" name="brKind" value="add"> + добавить рядом</label>' +
-          '<label><input type="radio" name="brKind" value="comment"> 💭 заметка</label>' +
+          '<label><input type="radio" name="brKind" value="comment"> заметка</label>' +
         '</div>' +
         '<textarea id="brNoteText" rows="3" placeholder="Что хочешь изменить или отметить в этом параграфе?"></textarea>' +
         '<div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end;">' +
@@ -256,7 +256,7 @@
         .then(function(r) { return r.json(); })
         .then(function(d) {
           btn.disabled = false;
-          btn.textContent = '⭐ Финальная Полировка через агента';
+          btn.textContent = 'Финальная Полировка через агента';
           if (d.error) { toast('Ошибка: ' + d.error, 6000); return; }
           renderPolishPlan(d);
         });

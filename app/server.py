@@ -7127,9 +7127,12 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             "Без преамбулы.\n\n"
             f"=== SUBSTRATE PAVEL-А ===\n\n{substrate}"
         )
+        # Opus 4.7 1M context — отдаём ВСЮ книгу. Полировщику нужен общий контекст
+        # чтобы новый текст не противоречил соседним главам.
+        full_context = "\n".join(chapters_context)
         user = (
-            f"# КНИГА: {book_id}\n"
-            + "\n".join(chapters_context)[:30000]
+            f"# КНИГА: {book_id} (всего {len(chapters_paras)} глав, {len(full_context)} символов)\n"
+            + full_context[:250000]
             + "\n\n# ЗАМЕТКИ PAVEL-А ({} штук):\n\n{}\n\nПострой план полировки. JSON.".format(len(open_notes), notes_text)
         )
         body_req = {
