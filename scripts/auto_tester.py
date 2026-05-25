@@ -468,6 +468,89 @@ def test_nav_has_book_reader(r: TestResult):
         r.fails("nav.js без book-reader", "Pavel не найдёт страницу")
 
 
+def test_master_audit_async(r: TestResult):
+    """master-audit-start: async endpoint, должен вернуть СРАЗУ (Pavel 2026-05-25
+    «страница не нужна, работа идёт на сервере»). Никакого блокирующего Opus call."""
+    print("\n── Master Audit async start ──")
+    # 1. Missing chapter_id → 400
+    try:
+        req = urllib.request.Request(
+            f"{SERVER}/api/chapter/master-audit-start",
+            data=b"{}",
+            headers={"content-type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            data = json.loads(e.read().decode("utf-8"))
+        if data.get("error"):
+            r.passes("async без chapter_id отклоняет", data["error"][:60])
+        else:
+            r.fails("async без chapter_id", "должен быть error")
+    except Exception as e:
+        r.fails("async validation", str(e))
+
+    # 2. Bad chapter_id format → 400
+    try:
+        req = urllib.request.Request(
+            f"{SERVER}/api/chapter/master-audit-start",
+            data=json.dumps({"chapter_id": "not-a-real-id"}).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            data = json.loads(e.read().decode("utf-8"))
+        if data.get("error"):
+            r.passes("async с битым id отклоняет", data["error"][:60])
+        else:
+            r.fails("async битый id", "должен быть error")
+    except Exception as e:
+        r.fails("async bad-id", str(e))
+
+    # 3. Response time SLA: правильный endpoint должен вернуть < 3 секунд
+    #    Если вернёт быстро + active job marker появился = endpoint асинхронный.
+    #    Используем главу которая уже cached, чтобы не тратить Opus deeper.
+    test_ch = "book-12-ch-20"
+    try:
+        active_dir = ROOT / ".codex/active-jobs"
+        # Cleanup any prior marker for clean test
+        old_marker = active_dir / f"{test_ch}__master-audit.json"
+        if old_marker.exists():
+            # Don't disturb a real run
+            r.warns("async timing test skipped", "уже running marker, не трогаю")
+            return
+        start = time.time()
+        req = urllib.request.Request(
+            f"{SERVER}/api/chapter/master-audit-start",
+            data=json.dumps({"chapter_id": test_ch}).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        elapsed = time.time() - start
+        if data.get("error"):
+            r.fails("async start", data["error"])
+            return
+        if elapsed < 3.0 and (data.get("started") or data.get("already_running")):
+            r.passes(f"async вернул за {elapsed:.2f}s",
+                     f"job_id={data.get('job_id','?')[:40]}")
+        else:
+            r.fails(f"async slow ({elapsed:.2f}s)", "endpoint должен возвращать <3с")
+        # Cleanup if we triggered a new run
+        if data.get("started"):
+            # Verify marker exists
+            time.sleep(1)
+            if old_marker.exists() or (active_dir / f"{test_ch}__master-audit.done.json").exists():
+                r.passes("async marker зарегистрирован")
+            else:
+                r.warns("async marker", "не нашёл маркер (возможно worker уже завершился)")
+    except Exception as e:
+        r.fails("async timing test", str(e))
+
+
 def test_personas_disabled(r: TestResult):
     """Pavel сказал отключить персон полностью (2026-05-25)."""
     print("\n── Persons отключены? ──")
@@ -559,6 +642,7 @@ def main():
     test_replace_paragraph_real(r, args.chapter, dry_run=args.quick)
     test_voice_guard_logic(r)
     test_personas_disabled(r)
+    test_master_audit_async(r)
     test_book_reader(r, book_id="book-12")
     test_polish_plan_validation(r, book_id="book-12")
     test_nav_has_book_reader(r)

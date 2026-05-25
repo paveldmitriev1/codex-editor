@@ -3478,7 +3478,10 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
         """Добавляет к каждой главе: progress (none|draft|finalized), avg_score, paragraph counts.
         Обновляет book.progress_summary."""
         for book in data.get("books", []):
-            book_id = book.get("id")
+            # Pavel 2026-05-25: toc.json использует "book_id" (новые книги),
+            # но _build_toc_from_disk и старый toc.json использовали "id".
+            # Поддерживаем оба.
+            book_id = book.get("id") or book.get("book_id")
             if not book_id:
                 continue
             finalized = 0
@@ -3506,6 +3509,25 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
                 ch["progress"] = progress
                 ch["is_finalized"] = (progress == "finalized")
                 ch["has_draft"] = draft_file.exists()
+                # Pavel 2026-05-25: индикатор готового master-audit cache.
+                # Если есть cache ≤ 7 дней — глава готова к открытию с правками
+                # от Мастера сразу (иначе придётся ждать ~2 мин Opus).
+                ma_cache = DATA_ROOT / "data/master-audit" / f"{ch_id}.json"
+                if ma_cache.exists():
+                    try:
+                        import time as _t
+                        age_hours = (_t.time() - ma_cache.stat().st_mtime) / 3600
+                        if age_hours < 168:
+                            ch["master_audit_ready"] = True
+                            ch["master_audit_age_hours"] = round(age_hours, 1)
+                            try:
+                                ma_data = json.loads(ma_cache.read_text(encoding="utf-8"))
+                                ch["master_audit_edits"] = len(ma_data.get("edits", []))
+                                ch["master_audit_score"] = ma_data.get("score_estimate")
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
                 # UC-110: дата последней правки контента (real edit time).
                 # Источник в порядке предпочтения:
                 #   1) meta.json content_updated_at (пишется при save из editor)
