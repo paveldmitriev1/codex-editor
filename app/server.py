@@ -1435,17 +1435,51 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
         out.sort(key=lambda r: r.get("finished_at") or "", reverse=True)
         return out
 
+    def _expand_voice_keywords(self, keywords: list) -> list:
+        """Pavel 2026-05-25: расширить keywords синонимами из data/voice-keywords.json.
+
+        Тезаурус — словарь {тема: [синоним1, синоним2, ...]}. Если в keywords
+        есть substring темы, добавляем все синонимы. Без RAG/embeddings —
+        статическая семантическая сеть, поднимает coverage с 0 до 5-10 файлов
+        для Устава и других книг где filename НЕ совпадает с темой главы.
+        """
+        thes_path = DATA_ROOT / "data/voice-keywords.json"
+        if not thes_path.exists():
+            return keywords
+        try:
+            thesaurus = json.loads(thes_path.read_text(encoding="utf-8"))
+        except Exception:
+            return keywords
+        expanded = set(kw.lower() for kw in keywords if kw)
+        # Для каждой темы из тезауруса: если она встречается substring-way
+        # в любом нашем keyword — добавить её синонимы. Двусторонний матч.
+        for theme, synonyms in thesaurus.items():
+            if theme.startswith("_"):  # skip _doc
+                continue
+            theme_lc = theme.lower()
+            matched = False
+            for kw in list(expanded):
+                if theme_lc in kw or kw in theme_lc:
+                    matched = True
+                    break
+            if matched:
+                for s in synonyms:
+                    expanded.add(s.lower())
+        return list(expanded)
+
     def _load_voice_extracts_for_chapter(self, chapter_id: str, max_chars: int = 14000) -> str:
-        """UC-120 + UC-129: загружает оригинальные voice-надиктовки Pavel-а.
+        """UC-120 + UC-129 + Pavel 2026-05-25: загружает оригинальные voice-надиктовки.
 
         Pavel: «именно мои наговоренные написанные в момент создания глав идеи.
         Сначала ОРИГИНАЛЬНЫЕ файлы из voice-corpus, потом voice-analysis missing_ideas».
 
-        Источники по приоритету:
-          1) voice-corpus/raw/*.md — оригинальные транскрипты по дате+теме
-          2) voice-corpus/original-ideas/*.md — собранные идеи по книгам
-          3) Codex/sources/voice-extracts/ — старые надиктовки 2025-2026
-          4) chapters/<chapter_id>/voice-analysis.json missing_ideas — AI-выжимки (fallback)
+        Существенные улучшения (2026-05-25):
+        1. Voice-corpus теперь в ~/Desktop/Codex-Content/voice-corpus/raw (545 файлов).
+           DATA_ROOT/voice-corpus был пуст — нашли по новому пути.
+        2. Thesaurus expansion: data/voice-keywords.json расширяет «математика» → «точность,
+           число, дисциплина, ритм...». Эти синонимы попадают в search.
+        3. Content-based ranking: ищем не только в filename, но и в содержимом файла.
+           Score = filename_hits × 3 + content_hits. Возвращаем top-K по score.
         """
         import re as _re
         m = _re.match(r"^(book-\d+|book-[a-z][a-z0-9-]*?|prologue|epilogue|ustav|appendices)-ch-(\d+)$", chapter_id)
@@ -1466,17 +1500,23 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
         if book_id == "book-obsession":
             keywords += ["одерж", "obsession", "паразит", "захват", "вторжен", "демон", "грибы", "миком"]
         if "ustav" in book_id:
-            # UC-130: расширенные ключи для Устава — добавлены общие термины Микомистицизма
             keywords += [
                 "устав", "ustav", "сообществ", "членств", "правил",
                 "грибы", "миком", "гид", "проводник", "церемони", "ритуал",
                 "посвящен", "восход", "иниц", "храм", "святилищ",
                 "хилингод", "духа", "дух", "великий", "творц",
             ]
+        if book_id == "book-12":
+            # Книга проклятий и путей искупления
+            keywords += ["проклят", "карма", "освобожден", "благословен", "трансформац",
+                         "родов", "грибы", "миком", "хилингод"]
         # Из title — слова >=4 букв
         if chapter_title:
             keywords += [w.lower() for w in _re.findall(r"[А-Яа-яЁё]{4,}", chapter_title)]
         keywords = list(set(keywords))
+
+        # 2026-05-25 NEW: thesaurus expansion
+        keywords = self._expand_voice_keywords(keywords)
 
         chunks = []
 
@@ -1486,37 +1526,73 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
             except Exception:
                 return ""
 
-        def _matches(p):
-            n = p.name.lower()
-            return any(kw in n for kw in keywords)
+        def _read_full(p, max_len=80000):
+            try:
+                return p.read_text(encoding="utf-8")[:max_len].lower()
+            except Exception:
+                return ""
 
-        # 1) Codex2 voice-corpus/raw/
-        v_raw = DATA_ROOT / "voice-corpus/raw"
-        relevant_raw = []
-        if v_raw.exists():
-            for f in v_raw.glob("*.md"):
-                if _matches(f):
-                    relevant_raw.append(f)
+        def _score_file(p):
+            """Score = filename hits × 3 + content hits. 0 = не релевантен."""
+            name_lc = p.name.lower()
+            score = 0
+            for kw in keywords:
+                if kw in name_lc:
+                    score += 3
+            content = _read_full(p)
+            if not content:
+                return score
+            for kw in keywords:
+                # Считаем сколько раз ключ встречается в тексте
+                hits = content.count(kw)
+                if hits:
+                    # log-scale чтобы один файл со 100 hits не доминировал
+                    score += min(hits, 5)
+            return score
+
+        # 2026-05-25 NEW: Voice-corpus теперь в Codex-Content (после content separation)
+        voice_roots = [
+            (DATA_ROOT / "voice-corpus/raw", "voice-corpus/raw"),
+            (Path.home() / "Desktop/Codex-Content/voice-corpus/raw", "Codex-Content/voice-corpus/raw"),
+        ]
+        scored_raw = []
+        for root, _label in voice_roots:
+            if not root.exists():
+                continue
+            for f in root.glob("*.md"):
+                s = _score_file(f)
+                if s > 0:
+                    scored_raw.append((s, f))
+        scored_raw.sort(key=lambda x: -x[0])
+        relevant_raw = [f for _, f in scored_raw[:5]]
+
         if relevant_raw:
-            chunks.append("## 🎙️ ОРИГИНАЛЬНЫЕ ВОЙС-НАДИКТОВКИ (voice-corpus/raw) — наговорено в момент создания\n")
-            for f in relevant_raw[:3]:
+            chunks.append("## 🎙️ ОРИГИНАЛЬНЫЕ ВОЙС-НАДИКТОВКИ — наговорено в момент создания (top-5 по релевантности)\n")
+            for f in relevant_raw[:5]:
                 text = _read_safe(f, 2500)
                 if text.strip():
                     chunks.append(f"\n### {f.name}\n\n{text}\n")
 
-        # 2) Codex2 voice-corpus/original-ideas/
-        v_ideas = DATA_ROOT / "voice-corpus/original-ideas"
-        if v_ideas.exists():
-            relevant_ideas = []
-            for f in v_ideas.glob("*.md"):
-                if _matches(f):
-                    relevant_ideas.append(f)
-            if relevant_ideas:
-                chunks.append("\n## 🎙️ ОРИГИНАЛЬНЫЕ ИДЕИ (voice-corpus/original-ideas) — сборка по темам книг\n")
-                for f in relevant_ideas[:2]:
-                    text = _read_safe(f, 2500)
-                    if text.strip():
-                        chunks.append(f"\n### {f.name}\n\n{text}\n")
+        # 2) voice-corpus/original-ideas/
+        ideas_roots = [
+            DATA_ROOT / "voice-corpus/original-ideas",
+            Path.home() / "Desktop/Codex-Content/voice-corpus/original-ideas",
+        ]
+        scored_ideas = []
+        for root in ideas_roots:
+            if not root.exists():
+                continue
+            for f in root.glob("*.md"):
+                s = _score_file(f)
+                if s > 0:
+                    scored_ideas.append((s, f))
+        scored_ideas.sort(key=lambda x: -x[0])
+        if scored_ideas:
+            chunks.append("\n## 🎙️ ОРИГИНАЛЬНЫЕ ИДЕИ — сборка по темам книг\n")
+            for _, f in scored_ideas[:2]:
+                text = _read_safe(f, 2500)
+                if text.strip():
+                    chunks.append(f"\n### {f.name}\n\n{text}\n")
 
         # 3) Codex/sources/voice-extracts (старый Codex)
         v_old = Path.home() / "Desktop/Codex/sources/voice-extracts"
