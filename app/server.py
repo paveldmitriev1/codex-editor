@@ -239,6 +239,12 @@ class CodexV2Handler(http.server.BaseHTTPRequestHandler):
         # Прямая замена параграфа (используется master-audit Apply, без Opus)
         if path == "/api/chapter/replace-paragraph":
             return self._replace_paragraph()
+        # Pavel 2026-05-25: после правок сверить с оригиналом + голосовыми
+        if path == "/api/chapter/post-edit-audit":
+            return self._post_edit_audit()
+        # Откат всей главы к baseline
+        if path == "/api/chapter/revert":
+            return self._revert_chapter()
         if path == "/api/briefing/regenerate":
             """POST → пересоздать MORNING-BRIEFING.md прямо сейчас."""
             import subprocess
@@ -6845,6 +6851,246 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             "inserted_at_idx": insert_at,
             "total_paragraphs": len(paras),
             "backup": backup_path.name if backup_path else None,
+        })
+
+    def _post_edit_audit(self):
+        """POST {chapter_id} → сравнить ТЕКУЩИЙ draft с самым ранним backup-ом этой
+        сессии редактирования + с твоими голосовыми, вынести вердикт «лучше / хуже /
+        что потеряно». Pavel (2026-05-25): «нужно соотнести ее с оригиналом и
+        голосовыми и убедиться что не упущены идеи и текст не стах хуже»."""
+        import urllib.request, re as _re
+        from datetime import datetime, timezone
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+
+        chapter_id = req.get("chapter_id", "")
+        m = _re.match(r"^(book-\d+|book-[a-z][a-z0-9-]*?|prologue|epilogue|ustav|appendices)-ch-(\d+)$", chapter_id)
+        if not m:
+            return self._json({"error": "bad chapter_id"}, 400)
+        book_id = m.group(1)
+        ch_dir = DATA_ROOT / "chapters" / book_id / chapter_id
+        draft_file = ch_dir / "draft.md"
+        history_dir = ch_dir / "history"
+        if not draft_file.exists():
+            return self._json({"error": "no draft.md"}, 404)
+        current_text = draft_file.read_text(encoding="utf-8")
+
+        # Находим САМЫЙ РАННИЙ backup сегодняшней сессии (или просто самый старый pre-replace).
+        # Это «оригинал до правок».
+        baseline_text = None
+        baseline_name = None
+        if history_dir.exists():
+            backups = sorted(history_dir.glob("*-pre-*.md"))
+            if backups:
+                baseline_path = backups[0]
+                baseline_text = baseline_path.read_text(encoding="utf-8")
+                baseline_name = baseline_path.name
+        if not baseline_text:
+            return self._json({
+                "error": "не нашёл оригинал в .history/ — править нечего, или ничего не правили"
+            }, 404)
+
+        # OAuth
+        env_file = Path.home() / ".cc-memory-bridge/.env"
+        token = None
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
+                    token = line.split("=", 1)[1].strip()
+                    break
+        if not token:
+            return self._json({"error": "no oauth token"}, 500)
+
+        self._active_job_register(chapter_id, "post-edit-audit", eta_seconds=180)
+
+        substrate = self._pavel_substrate(chapter_id, max_total_chars=14000)
+
+        system = (
+            "Ты — аудитор качества для Сакрального Кодекса Микомистицизма Pavel-а Хилингода.\n\n"
+            "Тебе дают ДВЕ версии главы: ОРИГИНАЛ (до правок) и ОТРЕДАКТИРОВАННАЯ (после правок).\n"
+            "Также substrate Pavel-а (канон, эталон голоса, голосовые цитаты).\n\n"
+            "Pavel боится одного: что AI-rewrite незаметно ухудшает текст — теряет идеи, дрейфует "
+            "от голоса Духа в сторону усреднённой AI-прозы. Твоя задача — ЧЕСТНО оценить случилось ли "
+            "это здесь.\n\n"
+            "Проверь:\n"
+            "  1. ИДЕИ — какие смысловые единицы были в оригинале но потеряны в отредактированной версии?\n"
+            "  2. ГОЛОС — есть ли регресс в Pavel-голосе (микро-предложения вместо длинных, бытовые "
+            "     глаголы вместо торжественных, потеря анафор и троичных перечислений)?\n"
+            "  3. AI-МАРКЕРЫ — появились ли новые AI-клише, тире, буллет-списки которых не было?\n"
+            "  4. ДОБАВЛЕНИЯ — что хорошего AI добавил (если что-то добавил)?\n"
+            "  5. ВЕРДИКТ — общая оценка изменений: improvement / neutral / regression\n\n"
+            "Будь жёстким. Если AI на самом деле улучшил — скажи. Если ухудшил — скажи это тоже.\n"
+            "Не подмазывай Pavel-у. Он просил честно.\n\n"
+            "Верни СТРОГО JSON:\n"
+            "{\n"
+            '  "verdict": "improvement | neutral | regression",\n'
+            '  "confidence": 0-100,\n'
+            '  "lost_ideas": [\n'
+            '    {"idea": "...", "from_original": "цитата 80-150 знаков", "why_important": "..."}\n'
+            "  ],\n"
+            '  "voice_regressions": [\n'
+            '    {"para_idx": N, "issue": "что регрессировало", "before": "цитата из оригинала", "after": "цитата из новой"}\n'
+            "  ],\n"
+            '  "new_ai_markers": [\n'
+            '    {"marker": "...", "where": "цитата ~30 знаков"}\n'
+            "  ],\n"
+            '  "improvements": [\n'
+            '    {"what": "что стало лучше", "evidence": "цитата"}\n'
+            "  ],\n"
+            '  "summary": "одно предложение — итоговое мнение",\n'
+            '  "should_revert": true|false\n'
+            "}\n\n"
+            "Без преамбулы, сразу JSON.\n\n"
+            f"=== SUBSTRATE ===\n\n{substrate}"
+        )
+
+        user = (
+            f"# ОРИГИНАЛ (до правок, {len(baseline_text)} знаков):\n\n{baseline_text}\n\n"
+            f"---\n\n"
+            f"# ОТРЕДАКТИРОВАННАЯ ВЕРСИЯ (после применения правок, {len(current_text)} знаков):\n\n{current_text}\n\n"
+            f"---\n\n"
+            f"Проведи аудит. Верни JSON."
+        )
+
+        body_req = {
+            "model": "claude-opus-4-7",
+            "max_tokens": 5000,
+            "thinking": {"type": "enabled", "budget_tokens": 4000},
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+        }
+        req_obj = urllib.request.Request(
+            "http://127.0.0.1:8787/v1/messages",
+            data=json.dumps(body_req).encode("utf-8"),
+            headers={
+                "x-api-key": token,
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": "interleaved-thinking-2025-05-14",
+                "content-type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req_obj, timeout=300) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            self._active_job_complete(chapter_id, "post-edit-audit", error=str(e))
+            return self._json({"error": f"Opus: {e}"}, 500)
+
+        raw = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+            if raw.startswith("json"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+        raw = raw.strip()
+        try:
+            parsed = json.loads(raw)
+        except Exception as e:
+            self._active_job_complete(chapter_id, "post-edit-audit", error=f"parse: {e}")
+            return self._json({"error": f"parse: {e}", "raw": raw[:1500]}, 500)
+
+        ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        result = {
+            "ok": True,
+            "chapter_id": chapter_id,
+            "ts": ts_iso,
+            "verdict": parsed.get("verdict", "unknown"),
+            "confidence": parsed.get("confidence"),
+            "lost_ideas": parsed.get("lost_ideas") or [],
+            "voice_regressions": parsed.get("voice_regressions") or [],
+            "new_ai_markers": parsed.get("new_ai_markers") or [],
+            "improvements": parsed.get("improvements") or [],
+            "summary": parsed.get("summary", ""),
+            "should_revert": bool(parsed.get("should_revert")),
+            "baseline_backup": baseline_name,
+            "baseline_chars": len(baseline_text),
+            "current_chars": len(current_text),
+            "usage": data.get("usage", {}),
+        }
+        # Сохраняем кэш для UI восстановления
+        audit_dir = DATA_ROOT / "data/post-edit-audit"
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        (audit_dir / f"{chapter_id}.json").write_text(
+            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        self._active_job_complete(chapter_id, "post-edit-audit", result={
+            "verdict": result["verdict"],
+            "lost_count": len(result["lost_ideas"]),
+            "regression_count": len(result["voice_regressions"]),
+        })
+        return self._json(result)
+
+    def _revert_chapter(self):
+        """POST {chapter_id, backup_name?} → откатить draft.md к указанному backup
+        (или к самому раннему pre-* если backup_name не задан). Полный rollback."""
+        import re as _re
+        from datetime import datetime, timezone
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+        chapter_id = req.get("chapter_id", "")
+        backup_name = req.get("backup_name", "")
+
+        m = _re.match(r"^(book-\d+|book-[a-z][a-z0-9-]*?|prologue|epilogue|ustav|appendices)-ch-(\d+)$", chapter_id)
+        if not m:
+            return self._json({"error": "bad chapter_id"}, 400)
+        book_id = m.group(1)
+        ch_dir = DATA_ROOT / "chapters" / book_id / chapter_id
+        draft_file = ch_dir / "draft.md"
+        history_dir = ch_dir / "history"
+        if not history_dir.exists():
+            return self._json({"error": "no .history dir"}, 404)
+
+        if backup_name:
+            backup_path = history_dir / backup_name
+        else:
+            backups = sorted(history_dir.glob("*-pre-*.md"))
+            if not backups:
+                return self._json({"error": "no backups in .history"}, 404)
+            backup_path = backups[0]
+        if not backup_path.exists():
+            return self._json({"error": f"backup {backup_path.name} not found"}, 404)
+
+        # Сохраняем текущее как pre-revert
+        ts_compact = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        current_text = draft_file.read_text(encoding="utf-8") if draft_file.exists() else ""
+        if current_text:
+            (history_dir / f"{ts_compact}-pre-revert.md").write_text(current_text, encoding="utf-8")
+
+        # Восстанавливаем
+        restored = backup_path.read_text(encoding="utf-8")
+        draft_file.write_text(restored, encoding="utf-8")
+
+        # Сбрасываем applied флаги в master-audit cache
+        master_cache = DATA_ROOT / "data/master-audit" / f"{chapter_id}.json"
+        if master_cache.exists():
+            try:
+                mc = json.loads(master_cache.read_text(encoding="utf-8"))
+                for e in mc.get("edits", []):
+                    e.pop("applied", None)
+                    e.pop("applied_at", None)
+                master_cache.write_text(json.dumps(mc, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+
+        return self._json({
+            "ok": True,
+            "chapter_id": chapter_id,
+            "restored_from": backup_path.name,
+            "restored_chars": len(restored),
+            "ts": ts_iso,
         })
 
     def _replace_paragraph(self):

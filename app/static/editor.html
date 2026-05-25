@@ -2397,11 +2397,13 @@
           resultBanner.innerHTML =
             '<div style="font-size:13px;color:#1e3a8a;">Пересчёт после правок</div>' +
             '<div style="font-size:24px;font-weight:700;color:' + color + ';margin:6px 0;">' + (prevScore != null ? prevScore + ' → ' : '') + newScore + '/100' + deltaStr + '</div>' +
-            (d.verdict ? '<div style="font-size:13px;color:#1e3a8a;font-style:italic;">' + esc(d.verdict) + '</div>' : '');
+            (d.verdict ? '<div style="font-size:13px;color:#1e3a8a;font-style:italic;">' + esc(d.verdict) + '</div>' : '') +
+            '<div style="font-size:12px;color:#1e3a8a;margin-top:8px;">⏳ Сверяю отредактированный текст с оригиналом и голосовыми…</div>';
           if (host) host.insertAdjacentElement('afterbegin', resultBanner);
-          /* И сразу рендерим новые правки если они есть */
           renderMasterAudit(d);
           toast('Оценка пересчитана: ' + newScore + '/100' + deltaStr, 6000);
+          /* Pavel-критичный шаг: post-edit audit — проверить что ничего не потеряно */
+          runPostEditAudit();
         })
         .catch(function(e) {
           var b = document.getElementById('masterRecalcBanner');
@@ -2449,6 +2451,116 @@
       .catch(function(e) {
         if (statusEl) { statusEl.textContent = 'Сеть: ' + e.message; statusEl.style.color = '#dc2626'; }
       });
+  }
+
+  /* ═══ POST-EDIT AUDIT (Pavel 2026-05-25) ═══
+     После применения всех правок сверяем отредактированный текст с
+     ОРИГИНАЛОМ (самый ранний backup) + голосовыми. Доказываем что
+     ничего не потеряно и текст не стал хуже. */
+  function runPostEditAudit() {
+    if (!CURRENT_CHAPTER) return;
+    fetch('/api/chapter/post-edit-audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error) {
+          toast('Post-edit audit: ' + d.error, 6000);
+          return;
+        }
+        renderPostEditAuditReport(d);
+      })
+      .catch(function(e) { toast('Сеть audit: ' + e.message, 5000); });
+  }
+
+  function renderPostEditAuditReport(d) {
+    var host = document.getElementById('analysisFixes');
+    if (!host) return;
+    var verdict = d.verdict || 'unknown';
+    var verdictMap = {
+      improvement: { color: '#16a34a', bg: '#dcfce7', label: '✓ Текст улучшился' },
+      neutral: { color: '#0891b2', bg: '#cffafe', label: '○ Текст не изменился по сути' },
+      regression: { color: '#dc2626', bg: '#fee2e2', label: '⚠ Текст СТАЛ ХУЖЕ' },
+    };
+    var v = verdictMap[verdict] || { color: '#6b7280', bg: '#f3f4f6', label: 'оценка не получена' };
+    var html = '<div class="post-edit-audit-card" style="background:' + v.bg + ';border:2px solid ' + v.color + ';border-radius:8px;padding:16px;margin:0 0 14px 0;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
+    html += '<div style="font-size:16px;font-weight:600;color:' + v.color + ';">' + v.label + ' · уверенность ' + (d.confidence != null ? d.confidence + '%' : '?') + '</div>';
+    if (d.should_revert) {
+      html += '<button class="btn btn-danger btn-sm" onclick="revertChapter()">↩ Откатить главу</button>';
+    }
+    html += '</div>';
+    if (d.summary) {
+      html += '<div style="font-size:13px;color:#374151;font-style:italic;margin-bottom:10px;">' + esc(d.summary) + '</div>';
+    }
+    if ((d.lost_ideas || []).length) {
+      html += '<details open style="margin-bottom:8px;"><summary style="cursor:pointer;font-weight:600;color:#991b1b;">🚨 Потерянные идеи (' + d.lost_ideas.length + ')</summary>';
+      d.lost_ideas.forEach(function(li) {
+        html += '<div style="margin:6px 0;padding:8px;background:white;border-left:3px solid #dc2626;border-radius:3px;">';
+        html += '<b>' + esc(li.idea || '') + '</b>';
+        if (li.from_original) html += '<div style="color:#6b7280;font-size:12px;margin-top:4px;">из оригинала: «' + esc(li.from_original) + '»</div>';
+        if (li.why_important) html += '<div style="color:#374151;font-size:13px;margin-top:4px;">' + esc(li.why_important) + '</div>';
+        html += '</div>';
+      });
+      html += '</details>';
+    }
+    if ((d.voice_regressions || []).length) {
+      html += '<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-weight:600;color:#7c2d12;">🎙 Регрессии голоса (' + d.voice_regressions.length + ')</summary>';
+      d.voice_regressions.forEach(function(vr) {
+        html += '<div style="margin:6px 0;padding:8px;background:white;border-left:3px solid #ea580c;border-radius:3px;font-size:13px;">';
+        html += '<b>П' + (vr.para_idx != null ? vr.para_idx : '?') + ':</b> ' + esc(vr.issue || '');
+        if (vr.before) html += '<div style="color:#6b7280;margin-top:4px;">было: «' + esc(vr.before) + '»</div>';
+        if (vr.after) html += '<div style="color:#991b1b;margin-top:2px;">стало: «' + esc(vr.after) + '»</div>';
+        html += '</div>';
+      });
+      html += '</details>';
+    }
+    if ((d.new_ai_markers || []).length) {
+      html += '<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-weight:600;color:#9a3412;">🤖 Новые AI-маркеры (' + d.new_ai_markers.length + ')</summary>';
+      d.new_ai_markers.forEach(function(m) {
+        html += '<div style="margin:4px 0;font-size:12px;color:#374151;">— <b>' + esc(m.marker || '') + '</b>' + (m.where ? ': «' + esc(m.where) + '»' : '') + '</div>';
+      });
+      html += '</details>';
+    }
+    if ((d.improvements || []).length) {
+      html += '<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-weight:600;color:#15803d;">✓ Что стало лучше (' + d.improvements.length + ')</summary>';
+      d.improvements.forEach(function(im) {
+        html += '<div style="margin:6px 0;padding:8px;background:white;border-left:3px solid #16a34a;border-radius:3px;font-size:13px;">';
+        html += esc(im.what || '');
+        if (im.evidence) html += '<div style="color:#6b7280;font-size:12px;margin-top:4px;">«' + esc(im.evidence) + '»</div>';
+        html += '</div>';
+      });
+      html += '</details>';
+    }
+    html += '<div style="font-size:11px;color:#6b7280;margin-top:10px;">сравнение: ' + esc(d.baseline_backup || '') + ' → текущая · ' + (d.baseline_chars || 0) + ' → ' + (d.current_chars || 0) + ' знаков</div>';
+    html += '</div>';
+    /* Удаляем предыдущий audit-баннер если был */
+    var existing = host.querySelector('.post-edit-audit-card');
+    if (existing) existing.remove();
+    host.insertAdjacentHTML('afterbegin', html);
+  }
+
+  function revertChapter() {
+    if (!confirm('Откатить ВСЮ главу к оригиналу (до правок этой сессии)? Текущая версия сохранится в .history/ как pre-revert.')) return;
+    fetch('/api/chapter/revert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (r.ok) {
+          toast('Откачено к ' + r.restored_from + '. Все правки master-audit сброшены.', 6000);
+          loadChapter(CURRENT_CHAPTER);
+          /* Удаляем audit-баннер и summary master-audit */
+          document.querySelectorAll('.post-edit-audit-card, .master-audit-summary, .master-edit-inline').forEach(function(el) { el.remove(); });
+        } else {
+          toast('Ошибка отката: ' + (r.error || '?'), 6000);
+        }
+      })
+      .catch(function(e) { toast('Сеть revert: ' + e.message, 5000); });
   }
 
   /* ═══ CODEX 3 (2026-05-24): Paragraph Writer — paragraph-by-paragraph approval gate ═══ */
