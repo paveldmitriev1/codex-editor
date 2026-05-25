@@ -2131,7 +2131,7 @@
     edits.forEach(function(e, idx) {
       var cat = e.category || '';
       var catColor = { voice: '#7c3aed', canon: '#dc2626', cliche: '#ea580c', structure: '#0891b2', 'missing-idea': '#16a34a' }[cat] || '#6b7280';
-      html += '<div style="background:white;border-radius:6px;padding:12px;margin-bottom:10px;border-left:4px solid ' + catColor + ';">';
+      html += '<div id="masterEdit_' + idx + '" style="background:white;border-radius:6px;padding:12px;margin-bottom:10px;border-left:4px solid ' + catColor + ';">';
       html += '<div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:6px;">';
       html += '<div><b>Правка ' + (idx + 1) + ' · П' + (e.para_idx != null ? e.para_idx : '?') + '</b>';
       if (cat) html += ' <span style="background:' + catColor + ';color:white;padding:1px 6px;border-radius:8px;font-size:11px;margin-left:4px;">' + esc(cat) + '</span>';
@@ -2139,8 +2139,44 @@
       html += '<button class="btn btn-primary btn-sm" onclick="applyMasterEdit(' + idx + ')">Применить</button>';
       html += '</div>';
       html += '<p style="margin:6px 0 4px 0;color:#374151;"><b>Проблема:</b> ' + esc(e.issue || '') + '</p>';
-      html += '<p style="margin:6px 0 4px 0;color:#111;background:#f9fafb;padding:8px;border-radius:4px;border:1px solid #e5e7eb;"><b>Замена:</b><br>' + esc(e.fix || '') + '</p>';
-      if (e.rationale) html += '<p style="margin:6px 0 0 0;color:#6b7280;font-size:13px;font-style:italic;">' + esc(e.rationale) + '</p>';
+
+      /* Оригинальный текст параграфа — чтобы Pavel мог сверить */
+      if (e.original) {
+        html += '<details style="margin:6px 0 4px 0;background:#f3f4f6;border-radius:4px;border:1px solid #e5e7eb;" open>';
+        html += '<summary style="cursor:pointer;padding:8px;font-weight:600;color:#374151;">Сейчас в главе (для сравнения)</summary>';
+        html += '<div style="padding:8px 10px 10px;color:#4b5563;font-size:13px;line-height:1.55;border-top:1px solid #e5e7eb;">' + esc(e.original) + '</div>';
+        html += '</details>';
+      }
+
+      html += '<p style="margin:6px 0 4px 0;color:#111;background:#fff7ed;padding:10px;border-radius:4px;border:1px solid #fed7aa;"><b>Замена от Мастера:</b><br>' + esc(e.fix || '') + '</p>';
+
+      if (e.voice_guard_warnings && e.voice_guard_warnings.length) {
+        html += '<div style="margin:4px 0;padding:6px 8px;background:#fee2e2;border:1px solid #dc2626;border-radius:4px;font-size:12px;color:#991b1b;">⚠ Voice Guard: ' + e.voice_guard_warnings.map(esc).join(' · ') + '</div>';
+      }
+
+      if (e.rationale) html += '<p style="margin:6px 0 8px 0;color:#6b7280;font-size:13px;font-style:italic;">' + esc(e.rationale) + '</p>';
+
+      /* Кнопка «Улучшить с комментарием» + история если уже улучшали */
+      html += '<details style="margin-top:8px;background:#f9fafb;border-radius:4px;border:1px solid #e5e7eb;">';
+      html += '<summary style="cursor:pointer;padding:8px;font-size:13px;color:#374151;font-weight:600;">✎ Дать комментарий и попросить Мастера переписать эту правку</summary>';
+      html += '<div style="padding:10px;">';
+      html += '<textarea id="masterRefineComment_' + idx + '" rows="3" placeholder="Например: «Слишком много пафоса, упрости. Сохрани анафоры. Убери третье лицо»" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:4px;font-family:inherit;font-size:13px;"></textarea>';
+      html += '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;">';
+      html += '<button class="btn btn-secondary btn-sm" onclick="refineMasterEdit(' + idx + ')">Улучшить с моим комментарием</button>';
+      html += '<span id="masterRefineStatus_' + idx + '" style="font-size:12px;color:#6b7280;"></span>';
+      html += '</div>';
+      if (e.history && e.history.length) {
+        html += '<details style="margin-top:10px;font-size:12px;"><summary style="cursor:pointer;color:#6b7280;">📜 история улучшений (' + e.history.length + ')</summary>';
+        e.history.forEach(function(h, hi) {
+          html += '<div style="margin:6px 0;padding:6px 8px;background:#fff;border-left:2px solid #d1d5db;border-radius:2px;">';
+          html += '<div style="color:#6b7280;font-size:11px;">' + esc(h.ts || '') + ' · твой комментарий: ' + esc(h.comment || '') + '</div>';
+          html += '<div style="color:#4b5563;margin-top:4px;font-size:12px;">' + esc((h.previous_fix || '').slice(0,300)) + '…</div>';
+          html += '</div>';
+        });
+        html += '</details>';
+      }
+      html += '</div></details>';
+
       html += '</div>';
     });
     html += '</div>';
@@ -2178,6 +2214,47 @@
         }
       })
       .catch(function(err) { toast('Сеть: ' + err.message, 5000); });
+  }
+
+  /* Master refine: Pavel оставляет комментарий → Opus переписывает только эту одну правку */
+  function refineMasterEdit(idx) {
+    var ta = document.getElementById('masterRefineComment_' + idx);
+    var statusEl = document.getElementById('masterRefineStatus_' + idx);
+    if (!ta) return;
+    var comment = (ta.value || '').trim();
+    if (comment.length < 3) { toast('Напиши комментарий что улучшить (минимум 3 знака)', 4000); return; }
+    if (statusEl) { statusEl.textContent = 'Мастер думает (~1-2 мин)…'; statusEl.style.color = '#7855e8'; }
+
+    fetch('/api/chapter/master-audit/refine', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER, edit_index: idx, comment: comment })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (r.error) {
+          if (statusEl) { statusEl.textContent = 'Ошибка: ' + r.error; statusEl.style.color = '#dc2626'; }
+          toast('Не получилось: ' + r.error, 6000);
+          return;
+        }
+        if (statusEl) { statusEl.textContent = 'Готово. Перерисую карточку.'; statusEl.style.color = '#16a34a'; }
+        // Обновляем edit в локальном кэше и перерисовываем
+        if (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits) {
+          window.__MASTER_AUDIT_DATA.edits[idx] = r.edit;
+          // Перерисовка только этой карточки была бы идеальнее, но проще — перерисовать всё
+          // Найдём контейнер analysisFixes и очистим карточку Мастера + перерисуем
+          var host = document.getElementById('analysisFixes');
+          if (host) {
+            // Удалим существующую master-audit-card
+            var existingCard = host.querySelector('.master-audit-card');
+            if (existingCard) existingCard.remove();
+            renderMasterAudit(window.__MASTER_AUDIT_DATA);
+          }
+        }
+      })
+      .catch(function(e) {
+        if (statusEl) { statusEl.textContent = 'Сеть: ' + e.message; statusEl.style.color = '#dc2626'; }
+      });
   }
 
   /* ═══ CODEX 3 (2026-05-24): Paragraph Writer — paragraph-by-paragraph approval gate ═══ */

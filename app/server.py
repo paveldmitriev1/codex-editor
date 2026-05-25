@@ -227,6 +227,9 @@ class CodexV2Handler(http.server.BaseHTTPRequestHandler):
         # ФАЗА 3 (2026-05-24): Мастер-аудитор — один Opus, 3-5 правок, голос Pavel-а в substrate
         if path == "/api/chapter/master-audit":
             return self._master_audit()
+        # Master refine — улучшить одну правку Мастера с комментарием Pavel-а
+        if path == "/api/chapter/master-audit/refine":
+            return self._master_audit_refine()
         # CODEX 3 (2026-05-24): Paragraph Writer — AI пишет один параграф из тезиса + цитат Pavel-а
         if path == "/api/chapter/write-paragraph":
             return self._write_paragraph()
@@ -6171,6 +6174,18 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             return self._json({"error": "Мастер не вернул правок", "raw": raw_text[:500]}, 500)
         edits = edits[:5]
 
+        # Добавляем оригинальный текст параграфа к каждой правке —
+        # Pavel должен видеть «до» и «после» рядом, чтобы судить честно.
+        for e in edits:
+            try:
+                pi = int(e.get("para_idx", -1))
+                if 0 <= pi < len(paras):
+                    e["original"] = paras[pi]
+                else:
+                    e["original"] = ""
+            except Exception:
+                e["original"] = ""
+
         # Сохраняем кэш
         cache_dir = DATA_ROOT / "data/master-audit"
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -6194,6 +6209,165 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
         })
 
         return self._json(cache)
+
+    def _master_audit_refine(self):
+        """POST {chapter_id, edit_index, comment} → улучшить одну конкретную правку
+        Мастера с учётом комментария Pavel-а. Возвращает обновлённый edit с новым fix."""
+        import urllib.request, re as _re
+        from datetime import datetime, timezone
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+
+        chapter_id = req.get("chapter_id", "")
+        edit_index = req.get("edit_index")
+        comment = (req.get("comment") or "").strip()
+        if not chapter_id or edit_index is None:
+            return self._json({"error": "chapter_id и edit_index обязательны"}, 400)
+        if not comment or len(comment) < 3:
+            return self._json({"error": "comment должен быть содержательным (минимум 3 знака)"}, 400)
+
+        # Грузим кэш master-audit
+        cache_path = DATA_ROOT / "data/master-audit" / f"{chapter_id}.json"
+        if not cache_path.exists():
+            return self._json({"error": "master-audit cache not found — запусти Мастера сначала"}, 404)
+        try:
+            cache = json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return self._json({"error": f"cache read: {e}"}, 500)
+
+        edits = cache.get("edits") or []
+        try:
+            ei = int(edit_index)
+        except Exception:
+            return self._json({"error": "edit_index должен быть числом"}, 400)
+        if ei < 0 or ei >= len(edits):
+            return self._json({"error": f"edit_index вне диапазона (0..{len(edits)-1})"}, 400)
+
+        target = edits[ei]
+        original = target.get("original", "")
+        issue = target.get("issue", "")
+        previous_fix = target.get("fix", "")
+        para_idx = target.get("para_idx", "?")
+        category = target.get("category", "")
+        rationale = target.get("rationale", "")
+
+        # OAuth
+        env_file = Path.home() / ".cc-memory-bridge/.env"
+        token = None
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
+                    token = line.split("=", 1)[1].strip()
+                    break
+        if not token:
+            return self._json({"error": "no oauth token"}, 500)
+
+        self._active_job_register(chapter_id, "master-audit-refine", eta_seconds=90)
+
+        # Substrate — тот же что у Мастера, чтобы голос держался
+        substrate = self._pavel_substrate(chapter_id, max_total_chars=14000)
+
+        system = (
+            "Ты — Мастер-аудитор Сакрального Кодекса. Pavel получил твою правку и сказал что "
+            "её надо улучшить. Перепиши ТОЛЬКО предложенную замену учитывая его комментарий.\n\n"
+            "ПРАВИЛА:\n"
+            "  • Сохрани category, para_idx, issue — они не меняются. Меняется только поле fix.\n"
+            "  • Новый fix должен учитывать комментарий Pavel-а в полной мере.\n"
+            "  • Голос Хилингода / Великого Духа Грибов. Никаких тире, AI-клише, выдуманных героев.\n"
+            "  • Длина fix — сопоставима с оригинальным параграфом (~150-400 слов в зависимости).\n"
+            "  • Никаких комментариев от себя, никакого «вот лучше», просто новый текст fix.\n\n"
+            "ВЕРНИ СТРОГО JSON:\n"
+            '{ "fix": "новый текст параграфа целиком", "rationale": "почему так стало лучше" }\n\n'
+            f"=== SUBSTRATE ===\n\n{substrate}"
+        )
+
+        user = (
+            f"# КОНТЕКСТ ПРАВКИ\n\n"
+            f"Параграф {para_idx}. Категория: {category}.\n\n"
+            f"# ИЗНАЧАЛЬНЫЙ ТЕКСТ В ГЛАВЕ:\n\n{original}\n\n"
+            f"# ПРОБЛЕМА (то что нашёл Мастер):\n\n{issue}\n\n"
+            f"# ПРЕДЫДУЩАЯ ПОПЫТКА ИСПРАВЛЕНИЯ (которую Pavel хочет улучшить):\n\n{previous_fix}\n\n"
+            f"# КОММЕНТАРИЙ PAVEL-А:\n\n«{comment}»\n\n"
+            f"Перепиши fix учитывая комментарий. JSON."
+        )
+
+        body_req = {
+            "model": "claude-opus-4-7",
+            "max_tokens": 3000,
+            "thinking": {"type": "enabled", "budget_tokens": 2500},
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+        }
+        req_obj = urllib.request.Request(
+            "http://127.0.0.1:8787/v1/messages",
+            data=json.dumps(body_req).encode("utf-8"),
+            headers={
+                "x-api-key": token,
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": "interleaved-thinking-2025-05-14",
+                "content-type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req_obj, timeout=240) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            self._active_job_complete(chapter_id, "master-audit-refine", error=str(e))
+            return self._json({"error": f"Opus: {e}"}, 500)
+
+        raw = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+            if raw.endswith("```"):
+                raw = raw.rsplit("```", 1)[0]
+            if raw.startswith("json"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+        raw = raw.strip()
+        try:
+            parsed = json.loads(raw)
+        except Exception as e:
+            self._active_job_complete(chapter_id, "master-audit-refine", error=f"parse: {e}")
+            return self._json({"error": f"parse: {e}", "raw": raw[:1500]}, 500)
+
+        new_fix = (parsed.get("fix") or "").strip()
+        new_rationale = (parsed.get("rationale") or "").strip() or rationale
+        if not new_fix:
+            self._active_job_complete(chapter_id, "master-audit-refine", error="empty")
+            return self._json({"error": "Мастер не вернул новый fix"}, 500)
+
+        # Voice guard
+        guard_warnings = self._voice_guard_check(new_fix)
+
+        # Сохраняем историю предыдущих версий + обновляем edit в кэше
+        target.setdefault("history", []).append({
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "previous_fix": previous_fix,
+            "comment": comment,
+        })
+        target["fix"] = new_fix
+        target["rationale"] = new_rationale
+        target["voice_guard_warnings"] = guard_warnings
+        edits[ei] = target
+        cache["edits"] = edits
+        cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        self._active_job_complete(chapter_id, "master-audit-refine", result={
+            "edit_index": ei,
+            "new_chars": len(new_fix),
+            "guard_warnings": len(guard_warnings),
+        })
+
+        return self._json({
+            "ok": True,
+            "edit_index": ei,
+            "edit": target,
+            "comment_used": comment,
+        })
 
     # ═══ CODEX 3 (2026-05-24): Paragraph Writer — AI пишет проект параграфа,
     # ═══ Pavel принимает/правит/переписывает/пропускает. Никаких bulk-применений.
