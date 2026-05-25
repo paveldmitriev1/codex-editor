@@ -631,6 +631,83 @@
       el.addEventListener('dblclick', onParaDblClick);
       body.appendChild(el);
     }
+    /* Inline линтер — подсветка AI-маркеров без Opus, мгновенно */
+    applyInlineLinter();
+  }
+
+  /* ═══ INLINE LINTER (2026-05-25) — статика, без API ═══
+     Подсвечивает в тексте: тире, AI-клише, микро-предложения, буллет-списки.
+     Pavel может фиксить руками сразу при открытии главы, не дожидаясь Master. */
+  function applyInlineLinter() {
+    var paragraphs = document.querySelectorAll('#chapterBody [data-idx]');
+    /* Сначала уберём предыдущие маркеры */
+    document.querySelectorAll('.inline-linter-mark').forEach(function(el) {
+      var parent = el.parentNode;
+      while (el.firstChild) parent.insertBefore(el.firstChild, el);
+      parent.removeChild(el);
+    });
+    document.querySelectorAll('.inline-linter-flag').forEach(function(el) { el.remove(); });
+
+    var totalMarkers = 0;
+    paragraphs.forEach(function(p) {
+      var text = p.textContent;
+      var issues = [];
+      var html = '';
+      var i = 0;
+      /* Тире (— и –) — красный */
+      var dashRegex = /[—–]/g;
+      /* AI-клише — оранжевый */
+      var clicheRegex = /(представля[яю]т собой|в отличие от|таким образом|при этом|не только\s+\S+\s+но и|важно понимать|можно сказать|стоит отметить|следует подчеркнуть|давайте углубимся)/gi;
+
+      /* Простая разметка: regex match → wrap */
+      var html2 = text;
+      html2 = html2.replace(dashRegex, function(m) { totalMarkers++; issues.push('тире'); return '<span class="inline-linter-mark" style="background:#fee2e2;color:#991b1b;padding:0 2px;border-radius:2px;border-bottom:2px dashed #dc2626;cursor:help;" title="UC-76: тире запрещено, замени на запятую">' + m + '</span>'; });
+      html2 = html2.replace(clicheRegex, function(m) { totalMarkers++; issues.push('AI-клише'); return '<span class="inline-linter-mark" style="background:#ffedd5;color:#9a3412;padding:0 3px;border-radius:2px;border-bottom:2px dotted #ea580c;cursor:help;" title="AI-клише — переформулируй своим голосом">' + m + '</span>'; });
+
+      /* Микро-предложения подряд */
+      var sentences = text.split(/(?<=[.!?])\s+/).filter(function(s) { return s.trim().length > 0; });
+      var consShort = 0;
+      var maxConsShort = 0;
+      sentences.forEach(function(s) {
+        var words = s.trim().split(/\s+/).length;
+        if (words <= 7) { consShort++; if (consShort > maxConsShort) maxConsShort = consShort; }
+        else consShort = 0;
+      });
+      var paraColored = false;
+      if (maxConsShort >= 3) {
+        p.style.borderLeft = '4px solid #7c3aed';
+        p.style.paddingLeft = '10px';
+        p.title = '🚨 микро-предложения подряд (' + maxConsShort + ') — AI-стиль, переписать длинными многоклаузными';
+        totalMarkers++;
+        paraColored = true;
+      }
+      /* Буллет-списки в идеях */
+      if (/^[\s]*[-•]\s+/m.test(text)) {
+        if (!paraColored) {
+          p.style.borderLeft = '4px solid #0891b2';
+          p.style.paddingLeft = '10px';
+        }
+        p.title = (p.title || '') + ' · буллет-список (Pavel-rule: списки только для инструкций)';
+        totalMarkers++;
+      }
+      if (html2 !== text) p.innerHTML = html2;
+    });
+
+    /* Глобальный индикатор сверху главы */
+    updateLinterBadge(totalMarkers);
+  }
+
+  function updateLinterBadge(count) {
+    var existing = document.getElementById('inlineLinterBadge');
+    if (existing) existing.remove();
+    if (count <= 0) return;
+    var body = document.getElementById('chapterBody');
+    if (!body) return;
+    var badge = document.createElement('div');
+    badge.id = 'inlineLinterBadge';
+    badge.style.cssText = 'background:linear-gradient(90deg,#fef3c7,#fde68a);border:1px solid #f59e0b;border-radius:6px;padding:8px 12px;margin:0 0 12px 0;font-size:13px;color:#78350f;display:flex;align-items:center;gap:8px;';
+    badge.innerHTML = '<span style="font-size:16px;">🔍</span><b>Статический линтер:</b> найдено ' + count + ' AI-маркеров в тексте · 🔴 тире · 🟠 AI-клише · 🟣 микро-предложения · 🔵 буллеты идей · <span style="opacity:0.7">наведи на маркер для подсказки, замени руками</span>';
+    body.insertBefore(badge, body.firstChild);
   }
 
   function onParaClick(e) {
