@@ -2316,14 +2316,29 @@
       if (e.rationale) {
         h += '<div style="margin:6px 0;color:#6b7280;font-size:12px;font-style:italic;">' + esc(e.rationale) + '</div>';
       }
-      /* Comment + Refine collapsible */
+      /* Refine + Insert — две РАЗНЫЕ функции, чтобы не путать.
+         Pavel 2026-05-25 ввёл готовый параграф в Refine textarea — потерял текст.
+         Теперь два чётко разделённых блока. */
       h += '<details style="margin-top:8px;background:#f9fafb;border-radius:4px;border:1px solid #e5e7eb;">';
-      h += '<summary style="cursor:pointer;padding:6px 10px;font-size:12px;color:#374151;font-weight:600;">✎ Не так? Дай комментарий и Мастер переделает</summary>';
+      h += '<summary style="cursor:pointer;padding:6px 10px;font-size:12px;color:#374151;font-weight:600;">✎ Сказать Мастеру что улучшить (короткая инструкция)</summary>';
       h += '<div style="padding:10px;">';
-      h += '<textarea id="masterRefineComment_' + idx + '" rows="2" placeholder="«Слишком пафосно». «Сохрани анафоры». «Голос Духа размыт»." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:4px;font-family:inherit;font-size:13px;"></textarea>';
+      h += '<div style="font-size:11px;color:#6b7280;margin-bottom:6px;">Здесь — короткая <b>инструкция</b> для Мастера (не сам текст!). Что переделать в его правке: убрать пафос, добавить голос Духа, сохранить анафоры и т.п. Мастер сам перепишет на её основе.</div>';
+      h += '<textarea id="masterRefineComment_' + idx + '" rows="2" placeholder="например: «Сделай мистичнее, убери академический тон». «Сохрани анафоры». «Голос Духа размыт»." oninput="saveRefineDraft(\'' + idx + '\')" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:4px;font-family:inherit;font-size:13px;"></textarea>';
       h += '<div style="margin-top:6px;display:flex;gap:8px;align-items:center;">';
-      h += '<button class="btn btn-secondary btn-sm" onclick="refineMasterEdit(' + idx + ')">Улучшить</button>';
+      h += '<button class="btn btn-secondary btn-sm" onclick="refineMasterEdit(' + idx + ')">Улучшить через Мастера</button>';
       h += '<span id="masterRefineStatus_' + idx + '" style="font-size:12px;color:#6b7280;"></span>';
+      h += '</div>';
+      h += '</div></details>';
+
+      /* Вторая опция: вставить готовый текст рядом с этим параграфом */
+      h += '<details style="margin-top:6px;background:#fef3c7;border-radius:4px;border:1px solid #fcd34d;">';
+      h += '<summary style="cursor:pointer;padding:6px 10px;font-size:12px;color:#78350f;font-weight:600;">📝 Вставить мой готовый текст рядом с этим параграфом</summary>';
+      h += '<div style="padding:10px;">';
+      h += '<div style="font-size:11px;color:#78350f;margin-bottom:6px;">Здесь — <b>полный готовый параграф</b> в твоём голосе. Будет вставлен новой строкой после текущего параграфа.</div>';
+      h += '<textarea id="masterInsertText_' + idx + '" rows="3" placeholder="например: «Тот, кто свершил это, становится светильником рода. Все предки его, томившиеся в тенях, получают освобождение...»" oninput="saveInsertDraft(\'' + idx + '\')" style="width:100%;padding:8px;border:1px solid #fcd34d;border-radius:4px;font-family:inherit;font-size:13px;"></textarea>';
+      h += '<div style="margin-top:6px;display:flex;gap:8px;align-items:center;">';
+      h += '<button class="btn btn-primary btn-sm" onclick="insertParagraphAfter(' + idx + ')">Вставить после этого параграфа</button>';
+      h += '<span id="masterInsertStatus_' + idx + '" style="font-size:12px;color:#6b7280;"></span>';
       h += '</div>';
       if (e.history && e.history.length) {
         h += '<details style="margin-top:8px;font-size:11px;"><summary style="cursor:pointer;color:#6b7280;">📜 ' + e.history.length + ' прошлых версий</summary>';
@@ -2345,6 +2360,9 @@
       paraEl.style.paddingLeft = '10px';
       paraEl.style.transition = 'border-color 0.3s';
     });
+    /* Pavel 2026-05-25: восстановить draft-ы Pavel-а если он начал писать
+       и сеть упала / страница перезагрузилась. */
+    restoreDrafts();
   }
 
   function scrollToMasterEdit(idx) {
@@ -2466,6 +2484,84 @@
   }
 
   /* Master refine: Pavel оставляет комментарий → Opus переписывает только эту одну правку */
+  /* Pavel 2026-05-25: auto-save drafts в localStorage чтобы Failed-to-fetch
+     не терял Pavel-овский текст. После успешного submit — очистить. */
+  function saveRefineDraft(idx) {
+    if (!CURRENT_CHAPTER) return;
+    var ta = document.getElementById('masterRefineComment_' + idx);
+    if (!ta) return;
+    try {
+      localStorage.setItem('codex2.refine.' + CURRENT_CHAPTER + '.' + idx, ta.value || '');
+    } catch (e) {}
+  }
+  function saveInsertDraft(idx) {
+    if (!CURRENT_CHAPTER) return;
+    var ta = document.getElementById('masterInsertText_' + idx);
+    if (!ta) return;
+    try {
+      localStorage.setItem('codex2.insert.' + CURRENT_CHAPTER + '.' + idx, ta.value || '');
+    } catch (e) {}
+  }
+  function restoreDrafts() {
+    if (!CURRENT_CHAPTER) return;
+    document.querySelectorAll('[id^="masterRefineComment_"]').forEach(function(ta) {
+      var idx = ta.id.replace('masterRefineComment_', '');
+      try {
+        var saved = localStorage.getItem('codex2.refine.' + CURRENT_CHAPTER + '.' + idx);
+        if (saved) ta.value = saved;
+      } catch (e) {}
+    });
+    document.querySelectorAll('[id^="masterInsertText_"]').forEach(function(ta) {
+      var idx = ta.id.replace('masterInsertText_', '');
+      try {
+        var saved = localStorage.getItem('codex2.insert.' + CURRENT_CHAPTER + '.' + idx);
+        if (saved) ta.value = saved;
+      } catch (e) {}
+    });
+  }
+
+  /* Вставка готового параграфа Pavel-а после указанного. Через /api/chapter/insert-paragraph */
+  function insertParagraphAfter(idx) {
+    var d = window.__MASTER_AUDIT_DATA;
+    if (!d || !d.edits || !d.edits[idx]) return;
+    var e = d.edits[idx];
+    var ta = document.getElementById('masterInsertText_' + idx);
+    var statusEl = document.getElementById('masterInsertStatus_' + idx);
+    if (!ta) return;
+    var text = (ta.value || '').trim();
+    if (text.length < 20) { toast('Текст слишком короткий (минимум 20 знаков)', 4000); return; }
+    if (statusEl) { statusEl.textContent = 'Вставляю…'; statusEl.style.color = '#7855e8'; }
+
+    fetch('/api/chapter/insert-paragraph', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapter_id: CURRENT_CHAPTER,
+        after_para_idx: e.para_idx,
+        new_text: text,
+        source: 'pavel_insert_after_master_edit'
+      })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (r.error) {
+          if (statusEl) { statusEl.textContent = 'Ошибка: ' + r.error; statusEl.style.color = '#dc2626'; }
+          toast('Не получилось: ' + r.error, 6000);
+          return;
+        }
+        if (statusEl) { statusEl.textContent = '✓ Параграф вставлен (бэкап: ' + (r.backup || '?') + ')'; statusEl.style.color = '#16a34a'; }
+        toast('Готово. Параграф вставлен после п.' + e.para_idx, 4000);
+        /* Очищаем localStorage draft — больше не нужен */
+        try { localStorage.removeItem('codex2.insert.' + CURRENT_CHAPTER + '.' + idx); } catch(e) {}
+        /* Перезагрузить главу чтобы DOM показал новый параграф */
+        loadChapter(CURRENT_CHAPTER);
+      })
+      .catch(function(err) {
+        if (statusEl) { statusEl.textContent = 'Сеть: ' + err.message + ' (текст СОХРАНЁН локально, не потеряется)'; statusEl.style.color = '#dc2626'; }
+        toast('Сеть упала, но твой текст сохранён в браузере — попробуй снова', 6000);
+      });
+  }
+
   function refineMasterEdit(idx) {
     var ta = document.getElementById('masterRefineComment_' + idx);
     var statusEl = document.getElementById('masterRefineStatus_' + idx);
@@ -2487,6 +2583,8 @@
           return;
         }
         if (statusEl) { statusEl.textContent = 'Готово. Перерисую карточку.'; statusEl.style.color = '#16a34a'; }
+        /* Очищаем localStorage draft — успешно отправлено */
+        try { localStorage.removeItem('codex2.refine.' + CURRENT_CHAPTER + '.' + idx); } catch(e) {}
         // Обновляем edit в локальном кэше и перерисовываем
         if (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits) {
           window.__MASTER_AUDIT_DATA.edits[idx] = r.edit;
