@@ -2376,7 +2376,12 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
             """
             draft_dir = DATA_ROOT / "chapters" / book_id / chapter_id
             draft_file = draft_dir / "draft.md"
-            meta_path = chapter_dir / "meta.json"
+            # Pavel 2026-05-25 fix: meta.json теперь лежит в chapters/<book>/<chapter>/
+            # (рядом с draft.md) после разделения content из sources/ в Codex-Content/.
+            # Старая проверка sources/ возвращала пустой meta → title в UI был пустой.
+            meta_path_chapters = draft_dir / "meta.json"
+            meta_path_sources = chapter_dir / "meta.json"
+            meta_path = meta_path_chapters if meta_path_chapters.exists() else meta_path_sources
             meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
 
             if draft_file.exists():
