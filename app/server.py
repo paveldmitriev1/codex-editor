@@ -6189,8 +6189,9 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
         # Регистрируем активный job
         self._active_job_register(chapter_id, "master-audit", eta_seconds=180)
 
-        # Собираем substrate
-        substrate = self._pavel_substrate(chapter_id, max_total_chars=22000)
+        # Собираем substrate. Будем сжимать на retry если Anthropic дропает соединение.
+        SUBSTRATE_BUDGETS = [22000, 10000, 5000]
+        substrate = self._pavel_substrate(chapter_id, max_total_chars=SUBSTRATE_BUDGETS[0])
 
         system = (
             "Ты — МАСТЕР-АУДИТОР Сакрального Кодекса Микомистицизма Pavel-а Хилингода.\n\n"
@@ -6231,29 +6232,57 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             f"# ЗАДАЧА\nВыдай 3-5 правок которые сильнее всего двигают эту главу к шедевру. JSON."
         )
 
-        body_req = {
-            "model": "claude-opus-4-7",
-            "max_tokens": 6000,
-            "thinking": {"type": "enabled", "budget_tokens": 4000},
-            "system": system,
-            "messages": [{"role": "user", "content": user}],
-        }
-        req_obj = urllib.request.Request(
-            "http://127.0.0.1:8787/v1/messages",
-            data=json.dumps(body_req).encode("utf-8"),
-            headers={
-                "x-api-key": token,
-                "anthropic-version": "2023-06-01",
-                "anthropic-beta": "interleaved-thinking-2025-05-14",
-                "content-type": "application/json",
-            },
-        )
-        try:
-            with urllib.request.urlopen(req_obj, timeout=300) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-        except Exception as e:
-            self._active_job_complete(chapter_id, "master-audit", error=str(e))
-            return self._json({"error": f"Opus: {e}"}, 500)
+        # Retry-loop: при 502/timeout от Anthropic пробуем ещё раз с урезанным substrate.
+        # Глава 2 (20K) + полный substrate (22K) даёт Headers Timeout у undici при долгом thinking.
+        import time as _time
+        data = None
+        last_err = None
+        for attempt_idx, budget in enumerate(SUBSTRATE_BUDGETS):
+            if attempt_idx > 0:
+                # На retry — пересобираем system с урезанным substrate
+                substrate = self._pavel_substrate(chapter_id, max_total_chars=budget)
+                system = system.split("=== SUBSTRATE PAVEL-А ===")[0] + f"=== SUBSTRATE PAVEL-А ===\n\n{substrate}"
+                _time.sleep(min(20, 5 * attempt_idx))  # backoff
+
+            body_req = {
+                "model": "claude-opus-4-7",
+                "max_tokens": 6000,
+                "thinking": {"type": "enabled", "budget_tokens": 4000},
+                "system": system,
+                "messages": [{"role": "user", "content": user}],
+            }
+            req_obj = urllib.request.Request(
+                "http://127.0.0.1:8787/v1/messages",
+                data=json.dumps(body_req).encode("utf-8"),
+                headers={
+                    "x-api-key": token,
+                    "anthropic-version": "2023-06-01",
+                    "anthropic-beta": "interleaved-thinking-2025-05-14",
+                    "content-type": "application/json",
+                },
+            )
+            try:
+                with urllib.request.urlopen(req_obj, timeout=400) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                break  # успех — выходим из retry-loop
+            except urllib.error.HTTPError as e:
+                last_err = f"HTTP {e.code}: {e.reason}"
+                if e.code in (502, 503, 504, 408) and attempt_idx < len(SUBSTRATE_BUDGETS) - 1:
+                    continue  # retry с меньшим substrate
+                self._active_job_complete(chapter_id, "master-audit",
+                                          error=f"Opus {last_err} (attempt {attempt_idx+1}/{len(SUBSTRATE_BUDGETS)})")
+                return self._json({"error": f"Opus: {last_err}"}, 500)
+            except Exception as e:
+                last_err = str(e)
+                if attempt_idx < len(SUBSTRATE_BUDGETS) - 1:
+                    continue
+                self._active_job_complete(chapter_id, "master-audit",
+                                          error=f"Opus {last_err} (final retry)")
+                return self._json({"error": f"Opus: {last_err}"}, 500)
+        if data is None:
+            self._active_job_complete(chapter_id, "master-audit",
+                                      error=f"all retries failed: {last_err}")
+            return self._json({"error": f"Opus retries exhausted: {last_err}"}, 500)
 
         raw_text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
         # Снимаем markdown-обёртку если есть

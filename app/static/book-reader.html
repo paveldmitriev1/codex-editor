@@ -88,8 +88,9 @@
             opt.textContent = b.title + ' (' + (b.chapters || []).length + ' глав)';
             sel.appendChild(opt);
           });
-          /* Restore last book */
-          var last = localStorage.getItem('codex2.bookreader.last_book');
+          /* Priority: URL ?book_id=X > localStorage last_book */
+          var urlBook = new URLSearchParams(window.location.search).get('book_id');
+          var last = urlBook || localStorage.getItem('codex2.bookreader.last_book');
           if (last) { sel.value = last; loadBook(last); }
         });
     }
