@@ -1594,16 +1594,18 @@ body {{ font-family: 'Inter', -apple-system, sans-serif; background: var(--color
                 if text.strip():
                     chunks.append(f"\n### {f.name}\n\n{text}\n")
 
-        # 3) Codex/sources/voice-extracts (старый Codex)
+        # 3) Codex/sources/voice-extracts (старый Codex) — тот же scoring подход
         v_old = Path.home() / "Desktop/Codex/sources/voice-extracts"
         if v_old.exists():
-            relevant_old = []
+            scored_old = []
             for f in v_old.glob("*.md"):
-                if _matches(f):
-                    relevant_old.append(f)
-            if relevant_old:
+                s = _score_file(f)
+                if s > 0:
+                    scored_old.append((s, f))
+            scored_old.sort(key=lambda x: -x[0])
+            if scored_old:
                 chunks.append("\n## 🎙️ ВОЙС-НАДИКТОВКИ (старая Codex) — оригинальные записи 2025-2026\n")
-                for f in relevant_old[:2]:
+                for _, f in scored_old[:2]:
                     text = _read_safe(f, 2000)
                     if text.strip():
                         chunks.append(f"\n### {f.name}\n\n{text}\n")
