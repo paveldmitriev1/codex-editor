@@ -2247,14 +2247,17 @@
           /* Помечаем правку как применённую — на reload карточка не вернётся */
           if (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits) {
             window.__MASTER_AUDIT_DATA.edits[idx].applied = true;
-            /* Убираем applied правки из данных перед re-render */
             window.__MASTER_AUDIT_DATA.edits = window.__MASTER_AUDIT_DATA.edits.filter(function(x) { return !x.applied; });
           }
+          var remaining = (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits) ? window.__MASTER_AUDIT_DATA.edits.length : 0;
           loadChapter(CURRENT_CHAPTER);
-          /* После reload главы re-render Master cards под обновлёнными параграфами */
+          /* Если ещё остались правки — перерисуем их inline под новыми параграфами.
+             Если все применены — автоматически перепрогоняем Мастера для пересчёта оценки. */
           setTimeout(function() {
-            if (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits && window.__MASTER_AUDIT_DATA.edits.length) {
+            if (remaining > 0) {
               renderMasterAudit(window.__MASTER_AUDIT_DATA);
+            } else {
+              triggerScoreRecalc();
             }
           }, 800);
         } else {
@@ -2262,6 +2265,65 @@
         }
       })
       .catch(function(err) { toast('Сеть: ' + err.message, 5000); });
+  }
+
+  /* Когда все правки применены — автоматически запускаем новый прогон Мастера
+     чтобы увидеть как изменилась оценка. «Было 74/100 → стало X/100». */
+  function triggerScoreRecalc() {
+    /* Запомним прошлую оценку для сравнения */
+    var prevScore = (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.score_estimate);
+    /* Удаляем старую summary полоску */
+    var host = document.getElementById('analysisFixes');
+    if (host) {
+      var oldSum = host.querySelector('.master-audit-summary');
+      if (oldSum) oldSum.remove();
+    }
+    /* Удаляем все inline-карточки если остались */
+    document.querySelectorAll('.master-edit-inline').forEach(function(el) { el.remove(); });
+
+    /* Промежуточный баннер «считаю новую оценку» */
+    var banner = document.createElement('div');
+    banner.id = 'masterRecalcBanner';
+    banner.style.cssText = 'background:linear-gradient(135deg,#dcfce7,#bbf7d0);border:2px solid #16a34a;border-radius:8px;padding:14px;margin:0 0 14px 0;text-align:center;font-size:14px;color:#14532d;font-weight:600;';
+    banner.innerHTML = '✓ Все правки применены' + (prevScore != null ? ' (было ' + prevScore + '/100)' : '') + '. Мастер пересчитывает оценку текста… ~3 мин';
+    if (host) host.insertAdjacentElement('afterbegin', banner);
+
+    /* Через секунду запускаем новый прогон. Используем существующую функцию. */
+    setTimeout(function() {
+      fetch('/api/chapter/master-audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chapter_id: CURRENT_CHAPTER })
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var b = document.getElementById('masterRecalcBanner');
+          if (b) b.remove();
+          if (d.error) {
+            toast('Не получилось пересчитать: ' + d.error, 6000);
+            return;
+          }
+          var newScore = d.score_estimate;
+          var delta = (prevScore != null && newScore != null) ? (newScore - prevScore) : null;
+          var deltaStr = delta != null ? (delta > 0 ? ' (+' + delta + ')' : ' (' + delta + ')') : '';
+          var color = delta != null && delta > 0 ? '#16a34a' : (delta != null && delta < 0 ? '#dc2626' : '#78350f');
+          /* Большое всплытие результата */
+          var resultBanner = document.createElement('div');
+          resultBanner.style.cssText = 'background:linear-gradient(135deg,#dbeafe,#bfdbfe);border:2px solid ' + color + ';border-radius:8px;padding:16px;margin:0 0 14px 0;text-align:center;';
+          resultBanner.innerHTML =
+            '<div style="font-size:13px;color:#1e3a8a;">Пересчёт после правок</div>' +
+            '<div style="font-size:24px;font-weight:700;color:' + color + ';margin:6px 0;">' + (prevScore != null ? prevScore + ' → ' : '') + newScore + '/100' + deltaStr + '</div>' +
+            (d.verdict ? '<div style="font-size:13px;color:#1e3a8a;font-style:italic;">' + esc(d.verdict) + '</div>' : '');
+          if (host) host.insertAdjacentElement('afterbegin', resultBanner);
+          /* И сразу рендерим новые правки если они есть */
+          renderMasterAudit(d);
+          toast('Оценка пересчитана: ' + newScore + '/100' + deltaStr, 6000);
+        })
+        .catch(function(e) {
+          var b = document.getElementById('masterRecalcBanner');
+          if (b) b.innerHTML = 'Ошибка сети: ' + e.message;
+        });
+    }, 1000);
   }
 
   /* Master refine: Pavel оставляет комментарий → Opus переписывает только эту одну правку */
