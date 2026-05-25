@@ -1,0 +1,2838 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Редактор Главы · Codex v2</title>
+<link rel="preconnect" href="https://rsms.me/">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body { background: var(--color-bg-app); }
+  .editor-layout { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); min-height: 100vh; }
+  .editor-main { padding: var(--space-6) var(--space-8) var(--space-12); max-width: 900px; margin: 0 auto; width: 100%; min-width: 0; }
+  .editor-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: center;
+    padding: var(--space-4);
+    background: var(--color-card);
+    border: 1px solid var(--color-card-border);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-5);
+    position: sticky;
+    top: var(--space-3);
+    z-index: 10;
+  }
+  .editor-toolbar select {
+    flex: 1;
+    min-width: 240px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-app);
+    color: var(--color-text);
+    font-family: inherit;
+    font-size: var(--text-sm);
+  }
+  .save-status { font-size: var(--text-xs); color: var(--color-text-muted); white-space: nowrap; padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
+  .save-status.dirty { color: #b45309; background: #fef3c7; }
+  .save-status.saved { color: #15803d; background: #dcfce7; }
+  .save-status.saving { color: var(--color-text-muted); }
+  .save-status.error { color: #b91c1c; background: #fee2e2; }
+  .chapter-empty { color: var(--color-text-muted); text-align: center; padding: var(--space-12) var(--space-4); }
+  .chapter-meta { color: var(--color-text-muted); font-size: var(--text-xs); margin-bottom: var(--space-4); display: flex; gap: var(--space-3); flex-wrap: wrap; }
+  /* UC-113: статус-бар прогресса главы */
+  .chapter-status-bar { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-2); flex-wrap: wrap; }
+  .ch-status-pill { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; padding: 3px 10px; border-radius: 999px; }
+  .ch-status-pill.empty { background: #f3f4f6; color: #6b7280; }
+  .ch-status-pill.sketch { background: #fef3c7; color: #92400e; }
+  .ch-status-pill.draft { background: #dbeafe; color: #1e40af; }
+  .ch-status-pill.near { background: #e0e7ff; color: #4338ca; }
+  .ch-status-pill.done { background: #dcfce7; color: #15803d; }
+  .ch-progress-wrap { display: inline-flex; align-items: center; gap: var(--space-2); }
+  .ch-progress-track { width: 140px; height: 6px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+  .ch-progress-fill { display: block; height: 100%; background: #6366F1; transition: width 200ms; border-radius: 999px; }
+  .ch-progress-fill.done { background: #16a34a; }
+  .ch-progress-num { font-size: 11px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; min-width: 36px; }
+  .ch-edit-time { font-size: 11px; color: var(--color-text-muted); }
+  .ch-edit-time::before { content: "·"; margin-right: 6px; }
+  .ch-breakdown-btn { background: transparent; border: 1px solid var(--color-border); color: var(--color-text-muted); width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; font-weight: 600; padding: 0; }
+  .ch-breakdown-btn:hover { background: var(--color-bg-app); color: var(--color-text); }
+  .ch-breakdown-panel { background: var(--color-card); border: 1px solid var(--color-card-border); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); margin-top: var(--space-2); font-size: 13px; }
+  .ch-breakdown-row { display: grid; grid-template-columns: 1fr auto auto; gap: var(--space-3); padding: 4px 0; border-bottom: 1px solid var(--color-divider); }
+  .ch-breakdown-row:last-child { border-bottom: none; }
+  .ch-breakdown-row .why { color: var(--color-text-muted); font-size: 11px; grid-column: 1/-1; }
+  .ch-breakdown-row .score { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--color-text); }
+  .ch-breakdown-row .score.full { color: #15803d; }
+  .ch-breakdown-row .score.partial { color: #b45309; }
+  .ch-breakdown-row .score.zero { color: #b91c1c; }
+  .chapter-body p, .chapter-body h1, .chapter-body h2, .chapter-body h3 {
+    padding: var(--space-3) var(--space-4);
+    margin: 0 0 var(--space-3);
+    border-radius: var(--radius-sm);
+    line-height: 1.7;
+    cursor: text;
+    border: 1px solid transparent;
+    transition: border-color 150ms, background 150ms;
+  }
+  .chapter-body p { line-height: 1.7; font-size: 16px; }
+  .chapter-body h1 { font-size: 26px; font-weight: 700; margin-top: var(--space-6); }
+  .chapter-body h2 { font-size: 20px; font-weight: 700; margin-top: var(--space-5); }
+  .chapter-body h3 { font-size: 17px; font-weight: 600; margin-top: var(--space-4); }
+  .chapter-body p:hover, .chapter-body h1:hover, .chapter-body h2:hover, .chapter-body h3:hover {
+    border-color: var(--color-border);
+    background: var(--color-card);
+  }
+  .chapter-body [contenteditable="true"] {
+    background: var(--color-card);
+    border-color: var(--color-accent);
+    outline: none;
+  }
+  /* UC-101: подсветка изменённых параграфов */
+  .chapter-body p.para-edited,
+  .chapter-body h1.para-edited,
+  .chapter-body h2.para-edited,
+  .chapter-body h3.para-edited {
+    border-left: 3px solid #16a34a;
+    padding-left: calc(var(--space-4) - 3px);
+  }
+  .chapter-body p.para-just-rewritten {
+    background: #ecfdf5 !important;
+    animation: para-flash 1.6s ease-out;
+  }
+  @keyframes para-flash {
+    0% { background: #fef3c7; }
+    100% { background: #ecfdf5; }
+  }
+  .toast-container { position: fixed; bottom: var(--space-6); right: var(--space-6); z-index: 999; display: flex; flex-direction: column; gap: var(--space-2); pointer-events: none; }
+  .toast { background: #111; color: white; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); font-size: var(--text-sm); box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 380px; pointer-events: auto; }
+  /* Анализ + Рекомендации (UC-104) — inline sticky panel над текстом */
+  .analysis-overlay { display: none; } /* больше не используем overlay */
+  .analysis-panel {
+    background: var(--color-card);
+    border: 1px solid var(--color-card-border);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-5);
+    overflow: hidden;
+    display: none;
+  }
+  .analysis-panel.visible { display: block; }
+  .analysis-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg-app);
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  .analysis-panel-head h2 { margin: 0; font-size: 17px; font-weight: 600; }
+  .analysis-panel-head-right { display: flex; gap: var(--space-2); align-items: center; }
+  .analysis-status { font-size: var(--text-xs); color: var(--color-text-muted); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); background: var(--color-bg-app); border: 1px solid var(--color-border); }
+  .analysis-status.running { color: #92400e; background: #fef3c7; border-color: #fde68a; }
+  .analysis-status.done { color: #166534; background: #dcfce7; border-color: #86efac; }
+  .analysis-status.error { color: #991b1b; background: #fee2e2; border-color: #fecaca; }
+  .analysis-summary { padding: var(--space-4) var(--space-5); display: flex; gap: var(--space-3); flex-wrap: wrap; }
+  .summary-card {
+    flex: 1 1 140px;
+    min-width: 130px;
+    background: var(--color-bg-app);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3);
+    text-align: left;
+  }
+  .summary-card .label { font-size: var(--text-xs); color: var(--color-text-muted); margin-bottom: var(--space-1); text-transform: uppercase; letter-spacing: 0.04em; }
+  .summary-card .value { font-size: 22px; font-weight: 700; font-family: var(--font-mono, monospace); }
+  .summary-card.score-good .value { color: #15803d; }
+  .summary-card.score-warn .value { color: #b45309; }
+  .summary-card.score-bad .value { color: #b91c1c; }
+  /* UC-122: статус шедевр */
+  .summary-card.masterpiece .value { color: #15803d; font-size: 18px; }
+  .summary-card.masterpiece { background: linear-gradient(135deg, #dcfce7 0%, #ffffff 100%); border: 2px solid #16a34a; }
+  .summary-card.good { background: #ecfdf5; }
+  .summary-card.warn { background: #fffbeb; }
+  .summary-card.danger { background: #fef2f2; }
+  .summary-card.warn .value { color: #b45309; font-size: 18px; }
+  .summary-card.danger .value { color: #b91c1c; font-size: 18px; }
+  .summary-card .note { font-size: 11px; color: var(--color-text-muted); margin-top: var(--space-1); }
+  .analysis-fixes { padding: 0 var(--space-5) var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+  .fix-group {
+    background: var(--color-bg-app);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .fix-group-head {
+    padding: var(--space-3) var(--space-4);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    background: var(--color-card);
+  }
+  .fix-group-head:hover { background: var(--color-bg-muted); }
+  .fix-group-name { font-weight: 600; }
+  .fix-group-meta { font-size: var(--text-xs); color: var(--color-text-muted); }
+  .fix-group-body { padding: var(--space-2); display: none; }
+  .fix-group.open .fix-group-body { display: block; }
+  .fix-item {
+    display: flex;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+    align-items: flex-start;
+  }
+  .fix-item:last-child { border-bottom: none; }
+  .fix-item input[type="checkbox"] { margin-top: 4px; }
+  /* UC-120: голосовые надиктовки — высший приоритет, визуально выделены */
+  .fix-item-voice { background: linear-gradient(to right, #fef3c7, transparent); border-left: 3px solid #f59e0b; padding-left: 8px; }
+  .fix-item-voice .fix-item-text::before { content: "🎙️ "; }
+  /* UC-118: главный старейшина — топ-4 рекомендаций */
+  .fix-item-chief-elder { background: linear-gradient(to right, #ede9fe, transparent); border-left: 3px solid #7c3aed; padding-left: 8px; }
+  .fix-item-chief-elder .fix-item-text::before { content: "👑 "; }
+  /* UC-133: прогресс-спиннер */
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes pulse-bg { 0%,100% { background: linear-gradient(90deg,#dbeafe,#eef2ff); } 50% { background: linear-gradient(90deg,#eef2ff,#dbeafe); } }
+  #progressBanner.done { animation: none !important; background: #dcfce7 !important; border-color: #16a34a !important; }
+  #progressBanner.error { background: #fee2e2 !important; border-color: #dc2626 !important; }
+  #progressBanner.done .spinner { display: none; }
+  #progressBanner.error .spinner { display: none; }
+  /* UC-119: Журналист Q&A */
+  .journalist-qa { padding: var(--space-3); max-height: 480px; overflow-y: auto; }
+  .qa-row { margin-bottom: var(--space-4); }
+  .qa-q { background: #eef2ff; border-left: 3px solid #6366F1; padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm); font-size: 14px; line-height: 1.5; }
+  .qa-a { margin-top: var(--space-2); padding: var(--space-3) var(--space-4); background: var(--color-bg-app); border-left: 3px solid #15803d; border-radius: var(--radius-sm); font-size: 14px; line-height: 1.5; color: var(--color-text); white-space: pre-wrap; }
+  .qa-a.pending { color: var(--color-text-muted); font-style: italic; }
+  .fix-item-body { flex: 1; min-width: 0; }
+  .fix-item-text { font-size: var(--text-sm); line-height: 1.5; }
+  .fix-item-meta { font-size: 11px; color: var(--color-text-muted); margin-top: 2px; }
+  .analysis-actions {
+    padding: var(--space-4) var(--space-5);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg-app);
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .analysis-hint { font-size: var(--text-xs); color: var(--color-text-muted); margin-left: auto; }
+  /* UC-100: per-paragraph popover */
+  .para-active { background: #fffbeb !important; border-color: var(--color-accent) !important; box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
+  .para-popover {
+    margin: var(--space-2) 0 var(--space-4) var(--space-4);
+    background: var(--color-card);
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+  }
+  .para-popover-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2); gap: var(--space-2); flex-wrap: wrap; }
+  .para-popover-title { font-size: 13px; font-weight: 600; color: var(--color-accent); }
+  .para-popover-score { font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+  .para-popover-score.score-good { color: #15803d; background: #dcfce7; }
+  .para-popover-score.score-warn { color: #b45309; background: #fef3c7; }
+  .para-popover-score.score-bad { color: #b91c1c; background: #fee2e2; }
+  .para-popover-recs { display: flex; flex-direction: column; gap: 4px; margin: var(--space-2) 0; }
+  .para-popover-rec { display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-app); }
+  .para-popover-rec input { margin-top: 3px; }
+  .para-popover-rec-body { flex: 1; min-width: 0; }
+  .para-popover-rec-text { font-size: 13px; line-height: 1.5; }
+  .para-popover-rec-meta { font-size: 11px; color: var(--color-text-muted); margin-top: 2px; }
+  .para-popover-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
+  .para-popover-empty { font-size: 13px; color: var(--color-text-muted); padding: var(--space-2); }
+  .para-popover-rewrite-result {
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    background: var(--color-bg-app);
+    border-left: 3px solid var(--color-accent);
+    border-radius: var(--radius-sm);
+    white-space: pre-wrap;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  /* UC-102: selection popover */
+  .sel-popover {
+    position: fixed;
+    display: none;
+    background: #1f2937;
+    color: white;
+    border-radius: var(--radius-md);
+    padding: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    z-index: 500;
+    gap: 2px;
+    align-items: center;
+  }
+  .sel-popover.visible { display: flex; }
+  .sel-popover button {
+    background: transparent;
+    color: white;
+    border: none;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    white-space: nowrap;
+  }
+  .sel-popover button:hover { background: rgba(255,255,255,0.12); }
+  .sel-popover button.bold { font-weight: 700; font-size: 14px; }
+  .sel-popover button.italic { font-style: italic; font-size: 14px; }
+  .sel-divider { width: 1px; background: rgba(255,255,255,0.2); margin: 2px 4px; align-self: stretch; }
+  .sel-popover-result {
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    background: #ecfdf5;
+    border: 1px solid #16a34a;
+    border-left: 3px solid #16a34a;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .sel-popover-result-actions { margin-top: var(--space-2); display: flex; gap: var(--space-2); }
+</style>
+</head>
+<body>
+<div class="editor-layout">
+  <aside class="sidebar" id="appSidebar" data-page="editor"></aside>
+  <script src="/static/nav.js"></script>
+  <main class="editor-main">
+    <header class="page-head">
+      <div style="flex:1;min-width:0">
+        <h1 id="chapterTitle">Редактор Главы</h1>
+        <p class="page-sub" id="chapterSub">Выбери главу из списка</p>
+        <div class="chapter-status-bar" id="chapterStatusBar" style="display:none">
+          <span class="ch-status-pill" id="chStatusPill"></span>
+          <span class="ch-progress-wrap" title="готовность главы">
+            <span class="ch-progress-track"><span class="ch-progress-fill" id="chProgressFill"></span></span>
+            <span class="ch-progress-num" id="chProgressNum">0%</span>
+          </span>
+          <span class="ch-edit-time" id="chEditTime"></span>
+          <button class="ch-breakdown-btn" id="chBreakdownBtn" type="button" title="Как считается %">?</button>
+        </div>
+        <div class="ch-breakdown-panel" id="chBreakdownPanel" style="display:none"></div>
+      </div>
+    </header>
+
+    <div class="editor-toolbar">
+      <select id="chapterSelect">
+        <option value="">Загружаю главы…</option>
+      </select>
+      <span class="save-status" id="saveStatus">из источника</span>
+      <button class="btn btn-primary btn-sm" id="saveBtn" disabled>Сохранить</button>
+      <button class="btn btn-ghost btn-sm" id="undoBtn" disabled title="Откатить (⌘Z)">↶</button>
+      <button class="btn btn-ghost btn-sm" id="redoBtn" disabled title="Накатить (⌘⇧Z)">↷</button>
+      <button class="btn btn-secondary btn-sm" id="finalizeBtn" disabled>Финализировать</button>
+      <a class="btn btn-ghost btn-sm" id="readBtn" href="#" target="_blank" style="display:none">Прочитать</a>
+      <button class="btn btn-primary btn-sm" id="analyzeBtn" disabled title="Сначала выбери главу в списке слева" style="background:#6366F1;color:white">Анализ и рекомендации ▾</button>
+    </div>
+
+    <div class="chapter-meta" id="chapterMeta"></div>
+
+    <section id="analysisPanel" class="analysis-panel">
+      <header class="analysis-panel-head">
+        <h2>Анализ и рекомендации</h2>
+        <div class="analysis-panel-head-right">
+          <span class="analysis-status" id="analysisStatus">не запускалось</span>
+          <button class="btn btn-primary btn-sm" id="masterAuditBtn" title="Мастер-аудитор: один Opus с твоим каноном + библиотекой + голосовыми. 3-5 главных правок за ~3 мин.">⭐ Мастер</button>
+          <button class="btn btn-ghost btn-sm" id="analysisRunBtn" title="Запустить 5 ключевых критиков (3-5 мин)">Критики</button>
+          <button class="btn btn-ghost btn-sm" id="personasRunBtn" title="3 современные персоны: Огилви, Роган, Тиль">Персоны</button>
+          <!-- Фаза 2 (2026-05-24): «Убрать конфликты» и «Последовательность» убраны из быстрых кнопок.
+               reconciler будет запускаться автоматически после критиков; sequence — опционально из «Глубокая проверка» -->
+          <button class="btn btn-ghost btn-sm" id="reconcileBtn" style="display:none" title="reconciler (скрыто, авто после критиков)">✨ Убрать конфликты</button>
+          <button class="btn btn-ghost btn-sm" id="sequenceBtn" style="display:none" title="sequence — скрыто, в Глубокую проверку">🔢 Последовательность</button>
+          <button class="btn btn-ghost btn-sm" id="analysisCloseBtn" title="Скрыть">×</button>
+        </div>
+      </header>
+      <div class="analysis-summary" id="analysisSummary"></div>
+      <div class="analysis-fixes" id="analysisFixes"></div>
+      <footer class="analysis-actions" id="analysisActions" style="display:none">
+        <button class="btn btn-secondary btn-sm" id="journalistBeforeApplyBtn" title="Журналист задаст вопросы по выбранным правкам">💬 Журналист спросит <span id="journalistBadge" style="display:none;background:#6366F1;color:white;padding:1px 6px;border-radius:8px;font-size:11px;margin-left:4px"></span></button>
+        <button class="btn btn-primary btn-sm" id="applyCheckedBtn">Применить отмеченное</button>
+        <!-- Фаза 2 (2026-05-24): «Переписать всю главу» (super-rewrite) скрыта.
+             Pavel: «переписывание глав было только ухудшено». Точечные правки через apply-targeted остаются.
+             Когда будет Мастер (Фаза 3) — здесь появится кнопка «Применить правку от Мастера». -->
+        <button class="btn btn-danger btn-sm" id="rewriteAllBtn" style="display:none">Переписать всю главу</button>
+        <button class="btn btn-secondary btn-sm" id="toMasterpieceBtn" style="display:none" title="UC-122 — спрятано до Фазы 3">🏆 Что нужно до 100%?</button>
+        <span class="analysis-hint" id="analysisHint"></span>
+      </footer>
+      <!-- UC-133: прогресс-баннер постоянно виден когда работа идёт -->
+      <div id="progressBanner" style="display:none;padding:var(--space-3) var(--space-4);background:linear-gradient(90deg,#dbeafe,#eef2ff);border-top:2px solid #6366F1;border-bottom:2px solid #6366F1">
+        <div style="display:flex;align-items:center;gap:var(--space-3)">
+          <div class="spinner" id="progressSpinner" style="width:24px;height:24px;border:3px solid #c7d2fe;border-top-color:#6366F1;border-radius:50%;animation:spin 1s linear infinite"></div>
+          <div style="flex:1">
+            <div id="progressTitle" style="font-weight:600;font-size:14px;color:var(--color-text)">Работаю…</div>
+            <div id="progressDetails" style="font-size:12px;color:var(--color-text-muted);margin-top:2px">Прошло 0 сек</div>
+          </div>
+          <div id="progressEta" style="font-size:11px;color:var(--color-text-muted);font-variant-numeric:tabular-nums"></div>
+        </div>
+        <div id="progressLog" style="margin-top:var(--space-2);font-size:11px;color:var(--color-text-muted);max-height:60px;overflow-y:auto;font-family:ui-monospace,Menlo,monospace"></div>
+      </div>
+    </section>
+
+    <!-- UC-119: Editor-Журналист Q&A панель -->
+    <section id="journalistPanel" class="analysis-panel" style="display:none">
+      <header class="analysis-panel-head">
+        <h2>💬 Журналист — диалог перед рерайтом</h2>
+        <div class="analysis-panel-head-right">
+          <span class="analysis-status" id="journalistStatus">…</span>
+          <button class="btn btn-ghost btn-sm" id="journalistSkipBtn" title="Пропустить вопросы, перейти к рерайту">Пропустить →</button>
+          <button class="btn btn-ghost btn-sm" id="journalistCloseBtn" title="Закрыть">×</button>
+        </div>
+      </header>
+      <div class="journalist-qa" id="journalistQA"></div>
+      <div class="journalist-input-row" id="journalistInputRow" style="padding: var(--space-3); border-top: 1px solid var(--color-card-border);">
+        <div style="font-size:11px;color:var(--color-text-muted);margin-bottom:6px">⚠ Журналист пишет только то что ТЫ рассказал. Никаких вымышленных историй. Если вопрос не подходит — нажми «Пропустить».</div>
+        <textarea id="journalistAnswer" placeholder="Твой ответ Журналисту…" style="width: 100%; min-height: 80px; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; resize: vertical;"></textarea>
+        <div style="display: flex; gap: var(--space-2); margin-top: var(--space-2); justify-content: space-between; align-items: center;">
+          <button class="btn btn-ghost btn-sm" id="journalistSkipQBtn" title="Пропустить этот вопрос — Журналист задаст другой">⏭ Пропустить вопрос</button>
+          <button class="btn btn-secondary btn-sm" id="journalistAnswerBtn">Отправить ответ →</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="chapter-body" id="chapterBody">
+      <p class="chapter-empty">Выбери главу сверху</p>
+    </div>
+  </main>
+</div>
+
+<div class="sel-popover" id="selPopover">
+  <button class="bold" data-act="bold" title="Жирный (Markdown **)">B</button>
+  <button class="italic" data-act="italic" title="Курсив (Markdown *)">I</button>
+  <div class="sel-divider"></div>
+  <button data-act="extend" title="Дополнить через Opus 4.7">Дополнить</button>
+  <button data-act="rewrite" title="Переписать в каноне Хилингода">Переписать</button>
+  <button data-act="shrink" title="Сжать в 2 раза">Сжать</button>
+  <button data-act="strengthen" title="Усилить сакральность">Усилить</button>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+  var CURRENT_CHAPTER = null;
+  var CURRENT_DRAFT = null;
+  var TOC_BY_ID = {};  /* UC-113: chapter_id -> {readiness_pct, status_kind, status_label, content_updated_at, ...} */
+  var DIRTY = false;
+  var AUTOSAVE_TIMER = null;
+
+  function renderChapterStatus(chapterId) {
+    var bar = document.getElementById('chapterStatusBar');
+    var tocCh = TOC_BY_ID[chapterId];
+    if (!bar || !tocCh) { if (bar) bar.style.display = 'none'; return; }
+    var pill = document.getElementById('chStatusPill');
+    var fill = document.getElementById('chProgressFill');
+    var num = document.getElementById('chProgressNum');
+    var et = document.getElementById('chEditTime');
+    var kind = tocCh.status_kind || 'empty';
+    var label = tocCh.status_label || 'пусто';
+    pill.className = 'ch-status-pill ' + kind;
+    pill.textContent = label;
+    var pct = Math.max(0, Math.min(100, tocCh.readiness_pct || 0));
+    fill.style.width = pct + '%';
+    fill.className = 'ch-progress-fill' + (pct >= 100 ? ' done' : '');
+    num.textContent = pct + '%';
+    et.textContent = tocCh.content_updated_at ? 'правил ' + fmtAgo(tocCh.content_updated_at) : 'ещё не правил';
+    bar.style.display = 'flex';
+    /* UC-114: подготовим breakdown panel */
+    var panel = document.getElementById('chBreakdownPanel');
+    var signals = tocCh.readiness_signals || [];
+    if (signals.length && panel) {
+      var rowsHtml = signals.map(function(s) {
+        var ratio = s.max > 0 ? s.points / s.max : 0;
+        var cls = ratio >= 0.85 ? 'full' : (ratio > 0 ? 'partial' : 'zero');
+        return '<div class="ch-breakdown-row">'
+             + '<span>' + esc(s.label) + '</span>'
+             + '<span class="score ' + cls + '">' + s.points + '/' + s.max + '</span>'
+             + '<span></span>'
+             + '<span class="why">' + esc(s.why) + '</span>'
+             + '</div>';
+      }).join('');
+      panel.innerHTML = rowsHtml;
+    }
+  }
+
+  /* UC-133: прогресс-баннер для долгих задач */
+  var PROGRESS_STATE = { startTs: null, timer: null, title: '', eta_sec: null };
+
+  function progressStart(title, etaSec) {
+    var b = document.getElementById('progressBanner');
+    if (!b) return;
+    b.style.display = 'block';
+    b.className = '';
+    document.getElementById('progressSpinner').style.display = '';
+    document.getElementById('progressTitle').textContent = title;
+    document.getElementById('progressLog').innerHTML = '';
+    PROGRESS_STATE.startTs = Date.now();
+    PROGRESS_STATE.title = title;
+    PROGRESS_STATE.eta_sec = etaSec || null;
+    if (PROGRESS_STATE.timer) clearInterval(PROGRESS_STATE.timer);
+    PROGRESS_STATE.timer = setInterval(progressTick, 1000);
+    progressTick();
+    b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function progressTick() {
+    if (!PROGRESS_STATE.startTs) return;
+    var sec = Math.floor((Date.now() - PROGRESS_STATE.startTs) / 1000);
+    var min = Math.floor(sec / 60);
+    var remSec = sec % 60;
+    var t = (min > 0 ? min + ' мин ' : '') + remSec + ' сек';
+    document.getElementById('progressDetails').textContent = 'Прошло ' + t;
+    if (PROGRESS_STATE.eta_sec) {
+      var eta = Math.max(0, PROGRESS_STATE.eta_sec - sec);
+      var etaMin = Math.floor(eta / 60);
+      var etaSec = eta % 60;
+      document.getElementById('progressEta').textContent = '~ ещё ' + (etaMin > 0 ? etaMin + ' мин ' : '') + etaSec + ' сек';
+    }
+  }
+
+  function progressLog(msg) {
+    var el = document.getElementById('progressLog');
+    if (el) {
+      el.innerHTML += '<div>' + new Date().toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit',second:'2-digit'}) + ' · ' + esc(msg) + '</div>';
+      el.scrollTop = el.scrollHeight;
+    }
+  }
+
+  function progressDone(msg) {
+    if (PROGRESS_STATE.timer) clearInterval(PROGRESS_STATE.timer);
+    var b = document.getElementById('progressBanner');
+    if (!b) return;
+    b.classList.add('done');
+    document.getElementById('progressTitle').textContent = '✓ ' + (msg || 'Готово');
+    var sec = Math.floor((Date.now() - PROGRESS_STATE.startTs) / 1000);
+    document.getElementById('progressDetails').textContent = 'Заняло ' + (sec >= 60 ? Math.floor(sec/60) + ' мин ' + (sec%60) + ' сек' : sec + ' сек');
+    document.getElementById('progressEta').textContent = '';
+    /* через 10 сек прячем */
+    setTimeout(function() { if (b) b.style.display = 'none'; }, 10000);
+  }
+
+  function progressError(msg) {
+    if (PROGRESS_STATE.timer) clearInterval(PROGRESS_STATE.timer);
+    var b = document.getElementById('progressBanner');
+    if (!b) return;
+    b.classList.add('error');
+    document.getElementById('progressTitle').textContent = '✗ Ошибка';
+    document.getElementById('progressDetails').textContent = msg || '';
+    document.getElementById('progressEta').textContent = '';
+  }
+
+  function fmtAgo(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    var diff = (new Date() - d) / 1000;
+    if (diff < 60) return 'только что';
+    if (diff < 3600) return Math.floor(diff/60) + ' мин';
+    if (diff < 86400) return Math.floor(diff/3600) + ' ч';
+    if (diff < 86400*7) return Math.floor(diff/86400) + ' д';
+    var months = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
+    return d.getDate() + ' ' + months[d.getMonth()];
+  }
+
+  function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, ms) {
+    var c = document.getElementById('toastContainer');
+    if (!c) return;
+    var el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(function() { el.remove(); }, ms || 3000);
+  }
+
+  function setSaveStatus(state, text) {
+    var el = document.getElementById('saveStatus');
+    if (!el) return;
+    el.className = 'save-status ' + state;
+    el.textContent = text;
+  }
+
+  function classifyParagraph(text) {
+    var t = (text || '').trim();
+    if (!t) return null;
+    var md = t.match(/^(#{1,6})\s+(.+)$/);
+    if (md) {
+      var lvl = Math.min(md[1].length, 3);
+      return { tag: 'h' + lvl, text: md[2] };
+    }
+    if (t.length < 120 && /^(КНИГА|УСТАВ|ПРОЛОГ|ЭПИЛОГ|ПРИЛОЖЕНИ)/i.test(t)) return { tag: 'h1', text: t };
+    if (t.length < 150 && /^(Глава|Часть|Раздел)\s+\d+/i.test(t)) return { tag: 'h2', text: t };
+    if (t.length < 100 && t === t.toUpperCase() && /[А-ЯЁ]/.test(t)) return { tag: 'h3', text: t };
+    return { tag: 'p', text: t };
+  }
+
+  function renderBody(paragraphs) {
+    var body = document.getElementById('chapterBody');
+    if (!body) return;
+    if (!paragraphs || !paragraphs.length) {
+      body.innerHTML = '<p class="chapter-empty">В этой главе пока нет текста. Иди в Новая глава или Журналист.</p>';
+      return;
+    }
+    body.innerHTML = '';
+    for (var i = 0; i < paragraphs.length; i++) {
+      var k = classifyParagraph(paragraphs[i]);
+      if (!k) continue;
+      var el = document.createElement(k.tag);
+      el.dataset.idx = String(i);
+      el.textContent = k.text;
+      el.addEventListener('click', onParaClick);
+      el.addEventListener('dblclick', onParaDblClick);
+      body.appendChild(el);
+    }
+  }
+
+  function onParaClick(e) {
+    var el = e.currentTarget;
+    if (el.getAttribute('contenteditable') === 'true') return;
+    e.preventDefault();
+    closeAllParaPopovers();
+    el.classList.add('para-active');
+    showParaPopover(el);
+  }
+
+  function onParaDblClick(e) {
+    var el = e.currentTarget;
+    closeAllParaPopovers();
+    startEdit(el);
+  }
+
+  function closeAllParaPopovers() {
+    var pops = document.querySelectorAll('.para-popover');
+    for (var i = 0; i < pops.length; i++) pops[i].remove();
+    var act = document.querySelectorAll('.para-active');
+    for (var j = 0; j < act.length; j++) act[j].classList.remove('para-active');
+  }
+
+  function startEdit(el) {
+    if (!el || !el.tagName) el = (typeof el === 'number') ? document.querySelector('.chapter-body [data-idx="' + el + '"]') : null;
+    if (!el) return;
+    closeAllParaPopovers();
+    if (el.getAttribute('contenteditable') === 'true') return;
+    el.setAttribute('contenteditable', 'true');
+    el.focus();
+    el.addEventListener('input', markDirty);
+    el.addEventListener('blur', function() { el.removeAttribute('contenteditable'); }, { once: true });
+    el.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Escape') el.blur();
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') { el.blur(); doSave(); }
+    });
+  }
+
+  /* UC-100: per-paragraph popover */
+  function paraScoreClass(s) {
+    if (s == null) return '';
+    if (s >= 75) return 'score-good';
+    if (s >= 55) return 'score-warn';
+    return 'score-bad';
+  }
+
+  function collectParaRecsFromAnalysis(idx) {
+    /* Собираем правки которые касаются конкретного параграфа (по para_idx) */
+    if (!ANALYSIS_DATA || !ANALYSIS_DATA.results) return [];
+    var out = [];
+    var results = ANALYSIS_DATA.results;
+    Object.keys(results).forEach(function(cid) {
+      if (cid === 'synthesis') return;
+      var c = results[cid];
+      if (!c || !c.result) return;
+      var label = c.label || cid;
+      var arr = c.result.violations || c.result.issues || c.result.fixes || c.result.recommendations || [];
+      if (!Array.isArray(arr)) return;
+      for (var i = 0; i < arr.length; i++) {
+        var v = arr[i];
+        var pi = v.para_idx != null ? v.para_idx : (v.paragraph_idx != null ? v.paragraph_idx : null);
+        if (pi !== idx) continue;
+        var text = v.fix || v.why || v.issue || v.message || v.recommendation || (typeof v === 'string' ? v : '');
+        if (!text) continue;
+        out.push({ critic: label, text: String(text).slice(0, 400), category: v.category || '' });
+      }
+    });
+    return out;
+  }
+
+  function showParaPopover(el) {
+    var idx = parseInt(el.dataset.idx);
+    var pop = document.createElement('div');
+    pop.className = 'para-popover';
+    pop.dataset.popIdx = String(idx);
+    var recs = collectParaRecsFromAnalysis(idx);
+    var html = '<div class="para-popover-head">' +
+               '<span class="para-popover-title">Параграф ' + (idx + 1) + (recs.length ? ' · ' + recs.length + ' рекомендаций' : '') + '</span>' +
+               '<button class="btn btn-ghost btn-sm" data-act="close" style="margin-left:auto">×</button>' +
+               '</div>';
+    if (recs.length) {
+      html += '<div class="para-popover-recs">';
+      for (var i = 0; i < recs.length; i++) {
+        html += '<label class="para-popover-rec">' +
+                '<input type="checkbox" data-rec-idx="' + i + '" checked>' +
+                '<div class="para-popover-rec-body">' +
+                '<div class="para-popover-rec-text">' + esc(recs[i].text) + '</div>' +
+                '<div class="para-popover-rec-meta">' + esc(recs[i].critic) + (recs[i].category ? ' · ' + esc(recs[i].category) : '') + '</div>' +
+                '</div></label>';
+      }
+      html += '</div>';
+    } else {
+      html += '<div class="para-popover-empty">Нет персональных рекомендаций для этого параграфа. ' +
+              (ANALYSIS_DATA ? 'Можно сразу переписать.' : 'Запусти «Анализ и рекомендации» сверху, тогда здесь появятся правки от 15 критиков.') +
+              '</div>';
+    }
+    html += '<div class="para-popover-actions">' +
+            (recs.length ? '<button class="btn btn-primary btn-sm" data-act="rewrite-marked">Переписать с галочками</button>' : '') +
+            '<button class="btn btn-secondary btn-sm" data-act="rewrite-all">Переписать полностью</button>' +
+            '<button class="btn btn-ghost btn-sm" data-act="edit">Редактировать вручную</button>' +
+            '</div>';
+    pop.innerHTML = html;
+    el.parentNode.insertBefore(pop, el.nextSibling);
+    pop._para = el;
+    pop._recs = recs;
+    pop.addEventListener('click', onPopoverClick);
+  }
+
+  function onPopoverClick(e) {
+    var btn = e.target.closest && e.target.closest('[data-act]');
+    if (!btn) return;
+    var act = btn.dataset.act;
+    var pop = btn.closest('.para-popover');
+    var idx = parseInt(pop.dataset.popIdx);
+    if (act === 'close') {
+      closeAllParaPopovers();
+    } else if (act === 'edit') {
+      var el = pop._para;
+      closeAllParaPopovers();
+      startEdit(el);
+    } else if (act === 'rewrite-all') {
+      rewriteParagraph(idx, '', pop);
+    } else if (act === 'rewrite-marked') {
+      var checked = pop.querySelectorAll('input[type=checkbox]:checked');
+      var instructions = [];
+      for (var i = 0; i < checked.length; i++) {
+        var ri = parseInt(checked[i].dataset.recIdx);
+        instructions.push(pop._recs[ri].text);
+      }
+      if (!instructions.length) {
+        toast('Сначала отметь галочками');
+        return;
+      }
+      rewriteParagraph(idx, instructions.join('\n\n— '), pop);
+    }
+  }
+
+  function rewriteParagraph(idx, instruction, pop) {
+    if (!CURRENT_CHAPTER) return;
+    var paraEl = pop._para;
+    var origText = paraEl.textContent;
+    var actions = pop.querySelector('.para-popover-actions');
+    if (actions) actions.innerHTML = '<span style="color:var(--color-text-muted);font-size:13px">Opus 4.7 переписывает (30-90 сек)…</span>';
+    var body = {
+      chapter_id: CURRENT_CHAPTER,
+      paragraph_idx: idx,
+      paragraph_text: origText,
+      instruction: instruction || 'Перепиши этот параграф в голосе Великого Духа Грибов. Без тире, без AI-клише, ритм Хилингода (10-12 слов на предложение). Сохрани главную мысль.'
+    };
+    fetch('/api/paragraph/rewrite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error) {
+          toast('Ошибка: ' + d.error, 5000);
+          if (actions) actions.innerHTML = '<button class="btn btn-ghost btn-sm" data-act="close">Закрыть</button>';
+          return;
+        }
+        showRewriteResult(pop, idx, origText, d.text || '');
+      })
+      .catch(function(e) {
+        toast('Сеть: ' + e.message, 6000);
+        if (actions) actions.innerHTML = '<button class="btn btn-ghost btn-sm" data-act="close">Закрыть</button>';
+      });
+  }
+
+  function showRewriteResult(pop, idx, origText, newText) {
+    var resBlock = document.createElement('div');
+    resBlock.className = 'para-popover-rewrite-result';
+    resBlock.textContent = newText;
+    pop.appendChild(resBlock);
+    var actions = pop.querySelector('.para-popover-actions');
+    if (actions) {
+      actions.innerHTML =
+        '<button class="btn btn-primary btn-sm" data-act="apply-rewrite">Применить</button>' +
+        '<button class="btn btn-secondary btn-sm" data-act="rewrite-again">Ещё вариант</button>' +
+        '<button class="btn btn-ghost btn-sm" data-act="close">Отменить</button>';
+    }
+    pop._newText = newText;
+    pop._origText = origText;
+    /* attach new handlers */
+    pop.removeEventListener('click', onPopoverClick);
+    pop.addEventListener('click', function(e) {
+      var btn = e.target.closest && e.target.closest('[data-act]');
+      if (!btn) return;
+      var act = btn.dataset.act;
+      if (act === 'apply-rewrite') {
+        var el = pop._para;
+        el.textContent = pop._newText;
+        markDirty();
+        markParagraphRewritten(el);
+        closeAllParaPopovers();
+        toast('Параграф обновлён. Сохрани Cmd+S.', 4000);
+      } else if (act === 'rewrite-again') {
+        rewriteParagraph(idx, '', pop);
+      } else if (act === 'close') {
+        closeAllParaPopovers();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      closeAllParaPopovers();
+    }
+  });
+
+  function markDirty() {
+    DIRTY = true;
+    setSaveStatus('dirty', 'не сохранено');
+    var btn = document.getElementById('saveBtn');
+    if (btn) btn.disabled = false;
+    if (AUTOSAVE_TIMER) clearTimeout(AUTOSAVE_TIMER);
+    AUTOSAVE_TIMER = setTimeout(function() { doSave('autosave'); }, 5000);
+  }
+
+  function gatherParagraphs() {
+    var out = [];
+    var els = document.querySelectorAll('#chapterBody [data-idx]');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      var tag = el.tagName.toLowerCase();
+      var text = el.textContent.trim();
+      if (!text) continue;
+      if (tag === 'h1') out.push('# ' + text);
+      else if (tag === 'h2') out.push('## ' + text);
+      else if (tag === 'h3') out.push('### ' + text);
+      else out.push(text);
+    }
+    return out;
+  }
+
+  function loadToc() {
+    setSaveStatus('saving', 'загрузка оглавления');
+    return fetch('/api/toc')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var sel = document.getElementById('chapterSelect');
+        sel.innerHTML = '<option value="">выбери главу</option>';
+        var books = (d.books || []).slice();
+        books.sort(function(a, b) {
+          if (a.id === 'book-obsession') return -1;
+          if (b.id === 'book-obsession') return 1;
+          return 0;
+        });
+        var total = 0;
+        for (var i = 0; i < books.length; i++) {
+          var book = books[i];
+          if (!book.chapters || !book.chapters.length) continue;
+          var grp = document.createElement('optgroup');
+          var marker = book.id === 'book-obsession' ? '* ' : '';
+          grp.label = marker + (book.title_clean || book.title || book.id);
+          for (var j = 0; j < book.chapters.length; j++) {
+            var ch = book.chapters[j];
+            TOC_BY_ID[ch.id] = ch;  /* UC-113: запоминаем чтобы потом дёрнуть status */
+            var opt = document.createElement('option');
+            opt.value = ch.id;
+            var n = typeof ch.number === 'number' ? ch.number : 0;
+            var numLabel = n === 0 ? 'Введ.' : 'Гл.' + n;
+            // UC-113: маркер прогресса прямо в опции dropdown:
+            // {check}{title} · {pct}% · {когда правили}
+            var statusMark = '';
+            if (ch.status_kind === 'done') statusMark = '✓ '; /* галочка */
+            else if (ch.status_kind === 'near') statusMark = '• '; /* точка */
+            else if (ch.status_kind === 'draft') statusMark = '• ';
+            else if (ch.status_kind === 'sketch') statusMark = '· ';
+            else statusMark = '  ';
+            var pctLabel = (typeof ch.readiness_pct === 'number' && ch.readiness_pct > 0) ? ' · ' + ch.readiness_pct + '%' : '';
+            var editLabel = ch.content_updated_at ? ' · ред. ' + fmtAgo(ch.content_updated_at) : '';
+            opt.textContent = statusMark + numLabel + ' . ' + (ch.title || ch.title_clean || ch.id) + pctLabel + editLabel;
+            opt.dataset.pct = String(ch.readiness_pct || 0);
+            opt.dataset.statusKind = ch.status_kind || 'empty';
+            opt.dataset.editTs = ch.content_updated_at || '';
+            grp.appendChild(opt);
+            total++;
+          }
+          sel.appendChild(grp);
+        }
+        sel.addEventListener('change', function() {
+          if (sel.value) loadChapter(sel.value);
+        });
+        setSaveStatus('saved', total + ' глав');
+        var params = new URLSearchParams(window.location.search);
+        var initial = params.get('chapter');
+        // UC-112: если ?chapter не задан — берём last_chapter из localStorage,
+        // чтобы при возврате на /editor работа не терялась.
+        if (!initial) {
+          try { initial = localStorage.getItem('codex2.editor.last_chapter'); } catch (e) {}
+        }
+        if (initial) {
+          sel.value = initial;
+          loadChapter(initial);
+        }
+      })
+      .catch(function(e) {
+        document.getElementById('chapterSelect').innerHTML = '<option value="">Ошибка: ' + esc(e.message) + '</option>';
+        setSaveStatus('error', 'ошибка оглавления');
+      });
+  }
+
+  function loadChapter(chapterId) {
+    setSaveStatus('saving', 'загрузка главы');
+    fetch('/api/chapter/' + encodeURIComponent(chapterId) + '/draft')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error) {
+          document.getElementById('chapterBody').innerHTML = '<p class="chapter-empty">Ошибка: ' + esc(d.error) + '</p>';
+          setSaveStatus('error', 'не загружена');
+          return;
+        }
+        CURRENT_CHAPTER = chapterId;
+        CURRENT_DRAFT = d;
+        DIRTY = false;
+        // UC-112: запоминаем для восстановления при возврате
+        try { localStorage.setItem('codex2.editor.last_chapter', chapterId); } catch (e) {}
+        document.getElementById('chapterTitle').textContent = d.title || chapterId;
+        document.getElementById('chapterSub').textContent = chapterId;
+        document.getElementById('saveBtn').disabled = true;
+        document.getElementById('finalizeBtn').disabled = false;
+        var anBtn = document.getElementById('analyzeBtn');
+        if (anBtn) anBtn.disabled = false;
+        var readBtn = document.getElementById('readBtn');
+        readBtn.href = '/read/' + chapterId;
+        readBtn.style.display = '';
+        var paras = d.paragraphs || [];
+        var words = (d.text || '').split(/\s+/).filter(Boolean).length;
+        document.getElementById('chapterMeta').innerHTML =
+          '<span>' + paras.length + ' параграфов</span>' +
+          '<span>' + words + ' слов</span>' +
+          '<span>' + Math.round((d.text || '').length / 1000) + 'K знаков</span>';
+        renderBody(paras);
+        renderChapterStatus(chapterId);
+        setSaveStatus('saved', 'из источника');
+        history.replaceState(null, '', '?chapter=' + encodeURIComponent(chapterId));
+        /* UC-101: загружаем undo/redo state + подсветку */
+        refreshUndoRedoState();
+        loadParagraphHistory();
+        /* UC-136: автоматически восстанавливаем анализ при возврате на страницу.
+           Pavel: «анализ и рекомендации пропадают каждый раз когда ухожу со страницы».
+           Если у главы есть прогон критиков — подтягиваем full-analysis + reconciled
+           в фоне и открываем панель если она была открыта в прошлый раз ИЛИ
+           если есть свежие данные. */
+        restoreAnalysisOnReturn();
+        /* UC-137: следим за фоновыми job-ами (apply-targeted, super-rewrite, …).
+           Если какой-то идёт прямо сейчас (или пока пользователь был на другой
+           странице) — покажем баннер с прогрессом. */
+        startActiveJobsWatcher();
+        /* Фаза 3: подтянем мастер-аудит из кэша если был */
+        loadMasterAuditCache();
+      })
+      .catch(function(e) {
+        setSaveStatus('error', 'сеть');
+        toast('Сеть: ' + e.message, 6000);
+      });
+  }
+
+  /* UC-101: Undo / Redo / per-paragraph history */
+  function refreshUndoRedoState() {
+    if (!CURRENT_CHAPTER) return;
+    fetch('/api/chapter/' + encodeURIComponent(CURRENT_CHAPTER) + '/undo-state')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var ub = document.getElementById('undoBtn');
+        var rb = document.getElementById('redoBtn');
+        if (ub) ub.disabled = !d.can_undo;
+        if (rb) rb.disabled = !d.can_redo;
+      })
+      .catch(function() {
+        /* fallback: пробуем угадать по snapshots */
+        var ub = document.getElementById('undoBtn');
+        if (ub) ub.disabled = false;
+      });
+  }
+
+  function doUndo() {
+    if (!CURRENT_CHAPTER) return;
+    if (DIRTY && !window.confirm('Есть несохранённые изменения. Откатить всё равно?')) return;
+    setSaveStatus('saving', 'откат…');
+    fetch('/api/chapter/' + encodeURIComponent(CURRENT_CHAPTER) + '/undo', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          toast('Откат сделан', 2500);
+          loadChapter(CURRENT_CHAPTER);
+        } else {
+          toast(d.error || 'не получилось откатить', 4000);
+          setSaveStatus('saved', 'без изменений');
+        }
+      })
+      .catch(function(e) { toast('Сеть: ' + e.message, 6000); });
+  }
+
+  function doRedo() {
+    if (!CURRENT_CHAPTER) return;
+    setSaveStatus('saving', 'накат…');
+    fetch('/api/chapter/' + encodeURIComponent(CURRENT_CHAPTER) + '/redo', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          toast('Накат сделан', 2500);
+          loadChapter(CURRENT_CHAPTER);
+        } else {
+          toast(d.error || 'не получилось накатить', 4000);
+          setSaveStatus('saved', 'без изменений');
+        }
+      })
+      .catch(function(e) { toast('Сеть: ' + e.message, 6000); });
+  }
+
+  function loadParagraphHistory() {
+    if (!CURRENT_CHAPTER) return;
+    fetch('/api/chapter/' + encodeURIComponent(CURRENT_CHAPTER) + '/paragraph-history')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var by = d.by_paragraph || {};
+        var els = document.querySelectorAll('#chapterBody [data-idx]');
+        for (var i = 0; i < els.length; i++) {
+          var idx = els[i].dataset.idx;
+          if (by[idx]) els[i].classList.add('para-edited');
+        }
+      })
+      .catch(function() {});
+  }
+
+  function markParagraphRewritten(el) {
+    if (!el) return;
+    el.classList.add('para-edited');
+    el.classList.add('para-just-rewritten');
+    setTimeout(function() { el.classList.remove('para-just-rewritten'); }, 1800);
+  }
+
+  /* UC-102: Selection popover */
+  var SEL_RANGE = null;
+  var SEL_TEXT = '';
+
+  function getCurrentSelectionInChapter() {
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+    var range = sel.getRangeAt(0);
+    var container = range.commonAncestorContainer;
+    /* Проверяем что выделение внутри chapterBody */
+    var chapterBody = document.getElementById('chapterBody');
+    if (!chapterBody) return null;
+    var node = container.nodeType === 3 ? container.parentNode : container;
+    if (!chapterBody.contains(node)) return null;
+    var text = sel.toString().trim();
+    if (text.length < 2) return null;
+    return { range: range.cloneRange(), text: text, rect: range.getBoundingClientRect() };
+  }
+
+  function showSelPopover() {
+    var info = getCurrentSelectionInChapter();
+    var pop = document.getElementById('selPopover');
+    if (!pop) return;
+    if (!info) {
+      pop.classList.remove('visible');
+      SEL_RANGE = null;
+      SEL_TEXT = '';
+      return;
+    }
+    SEL_RANGE = info.range;
+    SEL_TEXT = info.text;
+    var rect = info.rect;
+    pop.classList.add('visible');
+    /* Позиционируем над выделением */
+    var top = rect.top - pop.offsetHeight - 8;
+    if (top < 10) top = rect.bottom + 8; /* если сверху не помещается — внизу */
+    var left = rect.left + (rect.width / 2) - (pop.offsetWidth / 2);
+    if (left < 8) left = 8;
+    var maxLeft = window.innerWidth - pop.offsetWidth - 8;
+    if (left > maxLeft) left = maxLeft;
+    pop.style.top = top + 'px';
+    pop.style.left = left + 'px';
+  }
+
+  function hideSelPopover() {
+    var pop = document.getElementById('selPopover');
+    if (pop) pop.classList.remove('visible');
+    SEL_RANGE = null;
+    SEL_TEXT = '';
+  }
+
+  function findParaElement(node) {
+    var n = node;
+    while (n && n !== document.body) {
+      if (n.dataset && n.dataset.idx != null) return n;
+      n = n.parentNode;
+    }
+    return null;
+  }
+
+  function selectionApplyFormat(kind) {
+    if (!SEL_RANGE || !SEL_TEXT) return;
+    var marker = kind === 'bold' ? '**' : (kind === 'italic' ? '*' : '');
+    if (!marker) return;
+    var newText = marker + SEL_TEXT + marker;
+    SEL_RANGE.deleteContents();
+    SEL_RANGE.insertNode(document.createTextNode(newText));
+    markDirty();
+    hideSelPopover();
+    toast('Применено ' + (kind === 'bold' ? 'жирный' : 'курсив'), 2000);
+  }
+
+  function selectionRewrite(mode) {
+    if (!SEL_RANGE || !SEL_TEXT) return;
+    if (!CURRENT_CHAPTER) return;
+    var paraEl = findParaElement(SEL_RANGE.startContainer);
+    if (!paraEl) {
+      toast('Не нашёл параграф для выделения');
+      return;
+    }
+    var paraIdx = parseInt(paraEl.dataset.idx);
+    var paraText = paraEl.textContent;
+    var origSelText = SEL_TEXT;
+    var instructions = {
+      extend: 'Дополни этот фрагмент развитием мысли в голосе Великого Духа Грибов. Сохрани смысл, добавь конкретный образ или метафору. Без тире.',
+      rewrite: 'Перепиши этот фрагмент в голосе Великого Духа Грибов. Канон UC-76: без тире, ритм 10-12 слов в предложении, без AI-клише. Сохрани главную мысль.',
+      shrink: 'Сожми этот фрагмент в 2 раза. Сохрани главную мысль, выкини воду. Голос Великого Духа Грибов.',
+      strengthen: 'Усиль сакральность этого фрагмента. Добавь сенсорный якорь, доктринальный словарь Микомистицизма. Голос Великого Духа Грибов. Без AI-клише.',
+    };
+    var instr = instructions[mode] || instructions.rewrite;
+    var fullPrompt = instr + '\n\n# ВЫДЕЛЕННЫЙ ФРАГМЕНТ\n' + origSelText + '\n\n# ОКРУЖАЮЩИЙ ПАРАГРАФ (контекст)\n' + paraText;
+
+    hideSelPopover();
+    /* Show inline status block under the paragraph */
+    var statusEl = document.createElement('div');
+    statusEl.className = 'sel-popover-result';
+    statusEl.dataset.selStatus = '1';
+    statusEl.textContent = 'Opus 4.7 переписывает (30-60 сек)…';
+    paraEl.parentNode.insertBefore(statusEl, paraEl.nextSibling);
+
+    fetch('/api/paragraph/rewrite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapter_id: CURRENT_CHAPTER,
+        paragraph_idx: paraIdx,
+        paragraph_text: origSelText,
+        instruction: instr,
+      })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error) {
+          statusEl.textContent = 'Ошибка: ' + d.error;
+          return;
+        }
+        var newSel = (d.text || '').trim();
+        statusEl.innerHTML = '<div style="font-size:11px;color:#15803d;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Переписано</div>' +
+                             '<div class="sel-popover-result-text">' + esc(newSel) + '</div>' +
+                             '<div class="sel-popover-result-actions">' +
+                             '<button class="btn btn-primary btn-sm" data-sel-act="apply">Применить</button>' +
+                             '<button class="btn btn-secondary btn-sm" data-sel-act="regen">Ещё вариант</button>' +
+                             '<button class="btn btn-ghost btn-sm" data-sel-act="close">Отменить</button>' +
+                             '</div>';
+        statusEl._sel = { paraEl: paraEl, paraIdx: paraIdx, origSelText: origSelText, newSel: newSel, instr: instr };
+      })
+      .catch(function(e) {
+        statusEl.textContent = 'Сеть: ' + e.message;
+      });
+  }
+
+  document.addEventListener('mouseup', function(e) {
+    /* Pop should not interfere with click in popover itself */
+    if (e.target && e.target.closest && e.target.closest('.sel-popover')) return;
+    if (e.target && e.target.closest && e.target.closest('.para-popover')) return;
+    /* Если кликнули в редактируемом параграфе или вне chapter-body — скрываем */
+    if (e.target && e.target.getAttribute && e.target.getAttribute('contenteditable') === 'true') {
+      hideSelPopover();
+      return;
+    }
+    setTimeout(showSelPopover, 50); /* небольшая задержка чтобы selection устаканился */
+  });
+
+  document.addEventListener('mousedown', function(e) {
+    if (e.target && e.target.closest && e.target.closest('.sel-popover')) return;
+    /* При новом клике вне popover — скрываем */
+    hideSelPopover();
+  });
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest && e.target.closest('.sel-popover [data-act]');
+    if (btn) {
+      var act = btn.dataset.act;
+      if (act === 'bold' || act === 'italic') {
+        selectionApplyFormat(act);
+      } else {
+        selectionRewrite(act);
+      }
+      return;
+    }
+    /* Sel popover result actions */
+    var rbtn = e.target.closest && e.target.closest('.sel-popover-result [data-sel-act]');
+    if (rbtn) {
+      var resEl = rbtn.closest('.sel-popover-result');
+      var sel = resEl && resEl._sel;
+      if (!sel) return;
+      var act2 = rbtn.dataset.selAct;
+      if (act2 === 'apply') {
+        var paraEl = sel.paraEl;
+        var oldText = paraEl.textContent;
+        var newText = oldText.replace(sel.origSelText, sel.newSel);
+        paraEl.textContent = newText;
+        markDirty();
+        markParagraphRewritten(paraEl);
+        resEl.remove();
+        toast('Применено. Сохрани Cmd+S.', 3000);
+      } else if (act2 === 'regen') {
+        resEl.remove();
+        /* воссоздаём диалог с тем же текстом и инструкцией */
+        SEL_TEXT = sel.origSelText;
+        SEL_RANGE = document.createRange();
+        SEL_RANGE.selectNodeContents(sel.paraEl);
+        selectionRewriteAgain(sel.paraEl, sel.paraIdx, sel.origSelText, sel.instr);
+      } else if (act2 === 'close') {
+        resEl.remove();
+      }
+    }
+  });
+
+  function selectionRewriteAgain(paraEl, paraIdx, origSelText, instr) {
+    var statusEl = document.createElement('div');
+    statusEl.className = 'sel-popover-result';
+    statusEl.textContent = 'Opus 4.7 переписывает заново…';
+    paraEl.parentNode.insertBefore(statusEl, paraEl.nextSibling);
+    fetch('/api/paragraph/rewrite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER, paragraph_idx: paraIdx, paragraph_text: origSelText, instruction: instr })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error) { statusEl.textContent = 'Ошибка: ' + d.error; return; }
+        var newSel = (d.text || '').trim();
+        statusEl.innerHTML = '<div style="font-size:11px;color:#15803d;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Переписано (вариант 2)</div>' +
+                             '<div>' + esc(newSel) + '</div>' +
+                             '<div class="sel-popover-result-actions">' +
+                             '<button class="btn btn-primary btn-sm" data-sel-act="apply">Применить</button>' +
+                             '<button class="btn btn-secondary btn-sm" data-sel-act="regen">Ещё вариант</button>' +
+                             '<button class="btn btn-ghost btn-sm" data-sel-act="close">Отменить</button></div>';
+        statusEl._sel = { paraEl: paraEl, paraIdx: paraIdx, origSelText: origSelText, newSel: newSel, instr: instr };
+      });
+  }
+
+  function doSave(trigger) {
+    if (!CURRENT_CHAPTER) return;
+    if (!DIRTY && trigger !== 'force') return;
+    var paragraphs = gatherParagraphs();
+    setSaveStatus('saving', 'сохраняю');
+    fetch('/api/chapter/' + encodeURIComponent(CURRENT_CHAPTER) + '/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paragraphs: paragraphs, trigger: trigger || 'manual' })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          DIRTY = false;
+          document.getElementById('saveBtn').disabled = true;
+          var t = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+          setSaveStatus('saved', 'сохранено в ' + t);
+        } else {
+          setSaveStatus('error', 'ошибка');
+          toast('Ошибка: ' + (d.error || '?'), 6000);
+        }
+      })
+      .catch(function(e) {
+        setSaveStatus('error', 'сеть');
+        toast('Сеть: ' + e.message, 6000);
+      });
+  }
+
+  function doFinalize() {
+    if (!CURRENT_CHAPTER) return;
+    if (!window.confirm('Финализировать главу? draft.md станет финальной версией.')) return;
+    fetch('/api/chapter/' + encodeURIComponent(CURRENT_CHAPTER) + '/finalize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}'
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          toast('Финализировано: ' + (d.paragraphs || '?') + ' параграфов', 4000);
+          var rb = document.getElementById('readBtn');
+          if (rb) rb.style.display = '';
+        } else {
+          toast('Ошибка: ' + (d.error || '?'), 6000);
+        }
+      })
+      .catch(function(e) { toast('Сеть: ' + e.message, 6000); });
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); doSave(); }
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'z' || e.key === 'я')) {
+      /* Если мы в редактируемом параграфе, отдаём undo браузеру */
+      var tag = (document.activeElement?.tagName || '').toLowerCase();
+      var inEdit = document.activeElement?.getAttribute && document.activeElement.getAttribute('contenteditable') === 'true';
+      if (tag === 'input' || tag === 'textarea' || inEdit) return;
+      e.preventDefault(); doUndo();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z' || e.key === 'я' || e.key === 'Я')) {
+      var tag2 = (document.activeElement?.tagName || '').toLowerCase();
+      var inEdit2 = document.activeElement?.getAttribute && document.activeElement.getAttribute('contenteditable') === 'true';
+      if (tag2 === 'input' || tag2 === 'textarea' || inEdit2) return;
+      e.preventDefault(); doRedo();
+    }
+  });
+
+  window.addEventListener('beforeunload', function(e) {
+    if (DIRTY) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  /* ─── UC-99: Анализ + Рекомендации в одном блоке ────────────── */
+  var ANALYSIS_DATA = null;
+  var ANALYSIS_POLL_TIMER = null;
+  var PERSONAS_POLL_TIMER = null;
+  /* UC-119: editor-журналист */
+  var JOURNALIST_SESSION_ID = null;
+  var PENDING_APPLY_FIXES = null;
+  /* UC-126: кэш reconciled (загружается автоматом при открытии главы) */
+  var RECONCILED_CACHE = null;
+
+  function setAnalysisStatus(state, text) {
+    var el = document.getElementById('analysisStatus');
+    if (!el) return;
+    el.className = 'analysis-status ' + state;
+    el.textContent = text;
+  }
+
+  function openAnalysisPanel() {
+    if (!CURRENT_CHAPTER) {
+      toast('Сначала выбери главу в списке сверху');
+      return;
+    }
+    var p = document.getElementById('analysisPanel');
+    if (p) {
+      p.classList.add('visible');
+      setTimeout(function() { p.scrollIntoView({behavior: 'smooth', block: 'start'}); }, 80);
+    }
+    /* UC-136: запоминаем что панель открыта — чтобы при возврате на страницу
+       автоматически восстановить вид. */
+    try { localStorage.setItem('codex2.editor.analysis_open', '1'); } catch (e) {}
+    loadLatestAnalysis();
+  }
+
+  function closeAnalysisPanel() {
+    var p = document.getElementById('analysisPanel');
+    if (p) p.classList.remove('visible');
+    /* UC-136: явное закрытие = '0' (а не remove), чтобы на reload автoопен
+       уважал решение пользователя. */
+    try { localStorage.setItem('codex2.editor.analysis_open', '0'); } catch (e) {}
+  }
+
+  function scoreClass(s) {
+    if (s == null) return '';
+    if (s >= 75) return 'score-good';
+    if (s >= 55) return 'score-warn';
+    return 'score-bad';
+  }
+
+  /* UC-115: расширенная панель — synthesis + 15 критиков + lost-voice + параметры + personas */
+  function renderAnalysis(data) {
+    ANALYSIS_DATA = data;
+    var sum = document.getElementById('analysisSummary');
+    var fixes = document.getElementById('analysisFixes');
+    var actions = document.getElementById('analysisActions');
+    var hint = document.getElementById('analysisHint');
+    if (!sum || !fixes) return;
+
+    /* Если нет ничего из источников — пустое состояние */
+    if (!data || (!data.critics && !data.voice_missing_ideas && !data.density && !data.logic && !data.resonance && !data.hook_cliff && !data.style_coherence && !data.personas)) {
+      sum.innerHTML = '<div style="color:var(--color-text-muted)">Нет данных. Нажми «Запустить критиков» чтобы прогнать через 15 критиков (5-10 мин) или «Запустить персон» для 5 современников (3-5 мин).</div>';
+      fixes.innerHTML = '';
+      actions.style.display = 'none';
+      return;
+    }
+
+    /* === ШАПКА — сводные карточки === */
+    var summaryItems = [];
+    var critics = (data.critics && data.critics.results) || null;
+    var synth = (critics && critics.synthesis && critics.synthesis.result) || {};
+    var finalScore = synth.final_score;
+    /* UC-122: шедевр-бейдж */
+    var statusLabel = '—';
+    var statusCls = '';
+    if (finalScore != null) {
+      if (finalScore >= 95) { statusLabel = '🏆 Шедевр'; statusCls = 'masterpiece'; }
+      else if (finalScore >= 80) { statusLabel = '✅ Проходной'; statusCls = 'good'; }
+      else if (finalScore >= 60) { statusLabel = '✍️ Доработать'; statusCls = 'warn'; }
+      else { statusLabel = '⚠️ Major rework'; statusCls = 'danger'; }
+    }
+    summaryItems.push({ label: 'Шедевр-статус', value: statusLabel, cls: statusCls || scoreClass(finalScore), note: 'цель: 80+ проход, 95+ шедевр' });
+    summaryItems.push({ label: 'Итоговый балл', value: finalScore != null ? (finalScore + '/100') : '—', cls: scoreClass(finalScore), note: synth.verdict || '' });
+    /* UC-121: AI-detection — отдельная карточка */
+    if (critics && critics.ai_tells) {
+      var aiResult = critics.ai_tells.result || {};
+      var aiProb = aiResult.ai_probability;
+      if (typeof aiProb === 'number') {
+        var aiCls = aiProb >= 60 ? 'danger' : (aiProb >= 35 ? 'warn' : 'good');
+        var aiLabel = aiProb >= 60 ? '⚠️ Похоже на AI' : (aiProb >= 35 ? '🤔 Сомнительно' : '✓ Человек');
+        summaryItems.push({ label: '🤖 AI-вероятность', value: aiProb + '%', cls: aiCls, note: aiLabel + ' · цель: <30%' });
+      }
+    }
+
+    if (critics) {
+      var byGroup = { technical: [], council: [], final: [] };
+      Object.keys(critics).forEach(function(cid) {
+        var c = critics[cid];
+        if (!c || !c.result) return;
+        var grp = c.group || 'technical';
+        var s = c.result.score;
+        if (typeof s === 'number') byGroup[grp].push(s);
+      });
+      var groupLabels = { technical: 'Техника', council: 'Совет', final: 'Резонанс' };
+      Object.keys(byGroup).forEach(function(g) {
+        var arr = byGroup[g];
+        if (arr.length === 0) return;
+        var avg = Math.round(arr.reduce(function(a, b) { return a + b; }, 0) / arr.length);
+        summaryItems.push({ label: groupLabels[g], value: avg + '/100', cls: scoreClass(avg), note: arr.length + ' критиков' });
+      });
+    }
+    if (data.voice_missing_ideas && data.voice_missing_ideas.length) {
+      summaryItems.push({ label: 'Потеряно с голосовых', value: data.voice_missing_ideas.length + ' идей', cls: 'warn', note: 'нажми ниже чтобы встроить' });
+    }
+    if (data.personas) {
+      var n = data.personas.personas_run_count || 0;
+      summaryItems.push({ label: 'Современная аудитория', value: n + ' персон', cls: 'info', note: 'опрошено' });
+    }
+    sum.innerHTML = summaryItems.map(function(it) {
+      return '<div class="summary-card ' + it.cls + '">' +
+             '<div class="label">' + esc(it.label) + '</div>' +
+             '<div class="value">' + esc(it.value) + '</div>' +
+             '<div class="note">' + esc(it.note) + '</div></div>';
+    }).join('');
+
+    /* === СЕКЦИИ === */
+    var sections = [];
+    var allFixIdx = 0;
+
+    /* UC-126: проверяем кэш reconciled — если есть, показываем ТОП-5 сверху как главное */
+    if (RECONCILED_CACHE && RECONCILED_CACHE.reconciled && RECONCILED_CACHE.reconciled.length) {
+      sections.push(renderTopRecommendations(RECONCILED_CACHE, function() { return allFixIdx++; }));
+    } else {
+      /* Если ещё не было reconcile — показываем «получить ТОП-5» вверху */
+      sections.push('<div class="fix-group open" style="border:2px solid #6366F1;background:#eef2ff">'
+        + '<div class="fix-group-head"><span class="fix-group-name">📋 Получи ТОП-5 рекомендаций</span><span class="fix-group-meta">главный бот сведёт всё в 5 пунктов</span></div>'
+        + '<div class="fix-group-body" style="padding:var(--space-4) var(--space-3);text-align:center">'
+        + '<div style="margin-bottom:var(--space-3);color:var(--color-text);font-size:14px">Нажми «✨ Убрать конфликты» сверху — за минуту главный бот соберёт все рекомендации критиков, голосовых, Журналиста, старейшин и персон → выдаст ТОП-5 самых важных без дублей и противоречий. Голосовые твои — приоритет.</div>'
+        + '<button class="btn btn-primary" id="quickReconcileBtn">✨ Получить ТОП-5</button>'
+        + '</div></div>');
+    }
+
+    /* 1) SYNTHESIS pressure_points — теперь закрыто по умолчанию */
+    if (synth.pressure_points && synth.pressure_points.length) {
+      sections.push(renderPressurePoints(synth, function() { return allFixIdx++; }));
+    }
+
+    /* UC-118: 👑 Главный старейшина — топ-4 из всех старейшин */
+    if (data.chief_elder_top4 && data.chief_elder_top4.length) {
+      sections.push(renderChiefElderTop4(data.chief_elder_top4, function() { return allFixIdx++; }));
+    }
+
+    /* 2) ПОТЕРЯННОЕ С ГОЛОСОВЫХ */
+    if (data.voice_missing_ideas && data.voice_missing_ideas.length) {
+      sections.push(renderLostVoice(data.voice_missing_ideas, data.voice_additions, function() { return allFixIdx++; }));
+    }
+
+    /* 3) СОВЕТ СТАРЕЙШИН (council_*) */
+    if (critics) {
+      var councilCritics = {};
+      Object.keys(critics).forEach(function(cid) {
+        if (cid.indexOf('council_') === 0) councilCritics[cid] = critics[cid];
+      });
+      if (Object.keys(councilCritics).length) {
+        sections.push(renderCouncilElders(councilCritics, function() { return allFixIdx++; }));
+      }
+    }
+
+    /* 4) ТЕХНИЧЕСКИЕ ОСИ (voice_purity, ai_tells, mystical_depth, rhythm, sacred_lexicon, paragraph_architecture, opening_closing) */
+    if (critics) {
+      var technical = {};
+      ['voice_purity','ai_tells','mystical_depth','rhythm','sacred_lexicon','paragraph_architecture','opening_closing'].forEach(function(k){
+        if (critics[k]) technical[k] = critics[k];
+      });
+      if (Object.keys(technical).length) {
+        sections.push(renderTechnicalAxes(technical, function() { return allFixIdx++; }));
+      }
+    }
+
+    /* 5) РЕЗОНАНС критик */
+    if (critics && critics.resonance) {
+      sections.push(renderResonanceCritic(critics.resonance, function() { return allFixIdx++; }));
+    }
+
+    /* 6) СОВРЕМЕННАЯ АУДИТОРИЯ (personas) */
+    if (data.personas && data.personas.personas) {
+      sections.push(renderPersonas(data.personas.personas, function() { return allFixIdx++; }));
+    }
+
+    /* UC-117: 🔗 Отношение к другим главам — повторение, связь */
+    if (data.coherence_in_book) {
+      sections.push(renderCoherenceInBook(data.coherence_in_book, function() { return allFixIdx++; }));
+    }
+
+    /* UC-129: 🎙️ Оригинальные голосовые надиктовки Pavel-а для главы (опционально подгружаются) */
+    sections.push('<div class="fix-group" id="voiceSourcesSection"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\'); loadVoiceSources();"><span class="fix-group-name">🎙️ Твои голосовые надиктовки (оригиналы)</span><span class="fix-group-meta" id="voiceSourcesMeta">кликни чтобы загрузить</span></div><div class="fix-group-body" id="voiceSourcesBody"></div></div>');
+
+    /* 7) ОТДЕЛЬНЫЕ АНАЛИЗАТОРЫ */
+    var paramSections = [];
+    if (data.density) paramSections.push(renderDensityCard(data.density));
+    if (data.logic) paramSections.push(renderLogicCard(data.logic, function() { return allFixIdx++; }));
+    if (data.resonance) paramSections.push(renderResonanceCard(data.resonance, function() { return allFixIdx++; }));
+    if (data.hook_cliff) paramSections.push(renderHookCliffCard(data.hook_cliff, function() { return allFixIdx++; }));
+    if (data.style_coherence) paramSections.push(renderStyleCoherenceCard(data.style_coherence, function() { return allFixIdx++; }));
+    if (paramSections.length) {
+      sections.push('<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">📏 Параметры — density / логика / резонанс / hook+cliff / стиль</span><span class="fix-group-meta">' + paramSections.length + ' анализов</span></div><div class="fix-group-body">' + paramSections.join('') + '</div></div>');
+    }
+
+    fixes.innerHTML = sections.join('');
+
+    actions.style.display = '';
+    hint.textContent = 'Отметь нужные правки галочками и нажми «Применить». ' + allFixIdx + ' доступно.';
+    updateApplyCount();
+  }
+
+  function renderCheckItem(critic, paraIdx, text, meta, idxFn, opts) {
+    /* UC-117 + UC-120: по умолчанию ВСЕ галочки отмечены (Pavel: «уже отмечены и при желании могу отключить»).
+       voice_* — особо приоритетный источник, помечается visual. */
+    var idx = idxFn();
+    var checkedAttr = (opts && opts.unchecked) ? '' : ' checked';
+    var voiceClass = (critic && critic.indexOf('voice_') === 0) ? ' fix-item-voice' : '';
+    return '<label class="fix-item' + voiceClass + '">' +
+           '<input type="checkbox" data-critic="' + esc(critic) + '" data-fix-idx="' + idx + '" data-para-idx="' + (paraIdx != null ? paraIdx : '') + '"' + checkedAttr + '>' +
+           '<div class="fix-item-body">' +
+           '<div class="fix-item-text">' + esc(String(text).slice(0, 400)) + '</div>' +
+           (meta ? '<div class="fix-item-meta">' + esc(meta) + '</div>' : '') +
+           '</div></label>';
+  }
+
+  /* UC-129: загрузка оригинальных voice-надиктовок при раскрытии секции */
+  function loadVoiceSources() {
+    if (!CURRENT_CHAPTER) return;
+    var body = document.getElementById('voiceSourcesBody');
+    var meta = document.getElementById('voiceSourcesMeta');
+    if (body.dataset.loaded === 'yes') return; /* кэш */
+    body.innerHTML = '<div style="padding:var(--space-3);color:var(--color-text-muted)">загружаю…</div>';
+    fetch('/api/editor/voice-sources?chapter_id=' + encodeURIComponent(CURRENT_CHAPTER))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var src = d.sources || [];
+        if (meta) meta.textContent = src.length + ' файлов';
+        if (!src.length) {
+          body.innerHTML = '<div style="padding:var(--space-3);color:var(--color-text-muted);font-style:italic">Не нашёл voice-файлов в voice-corpus/raw и др. источниках для темы главы. Если ты диктовал — назови файл с темой главы в названии (например "obsession" или "одержимость").</div>';
+        } else {
+          body.innerHTML = src.map(function(s) {
+            return '<div style="padding:var(--space-2) var(--space-3);margin:4px 0;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:var(--radius-sm)">'
+                 + '<div style="font-weight:600;font-size:13px">🎙️ ' + esc(s.filename) + '</div>'
+                 + '<div style="font-size:11px;color:var(--color-text-muted);margin:2px 0">[' + esc(s.source) + '] · ' + s.size + ' chars</div>'
+                 + '<div style="font-size:12px;color:var(--color-text);margin-top:4px;line-height:1.4">' + esc(s.preview).slice(0, 300) + '…</div>'
+                 + '</div>';
+          }).join('');
+        }
+        body.dataset.loaded = 'yes';
+      })
+      .catch(function(e) {
+        body.innerHTML = '<div style="padding:var(--space-3);color:#b91c1c">Ошибка: ' + esc(e.message) + '</div>';
+      });
+  }
+
+  /* UC-126: топ-5 главных рекомендаций — единственная open секция */
+  function renderTopRecommendations(reconciled, idxFn) {
+    var items = (reconciled.reconciled || []).slice(0, 5);
+    var rendered = items.map(function(it, i) {
+      var tier = it.priority_tier || 8;
+      var voiceCls = (tier === 1) ? ' fix-item-voice' : (tier === 2 ? ' fix-item-chief-elder' : '');
+      var paraIdx = it.para_idx;
+      var idx = idxFn();
+      var num = '<span style="display:inline-block;width:24px;height:24px;border-radius:50%;background:#6366F1;color:white;text-align:center;line-height:24px;font-weight:700;margin-right:8px;font-size:13px">' + (i+1) + '</span>';
+      var src = (it.source || '').replace('voice_missing', '🎙️ голосовое').replace('chief_elder_', '👑 ').replace('synthesis_', '🎯 ');
+      return '<label class="fix-item' + voiceCls + '" style="border-radius:6px;padding:10px 12px;margin:4px 0;background:white;border:1px solid var(--color-card-border)">'
+           + '<input type="checkbox" data-critic="top5_' + esc(it.source || '') + '" data-fix-idx="' + idx + '" data-para-idx="' + (paraIdx != null ? paraIdx : '') + '" checked>'
+           + '<div class="fix-item-body">'
+           + '<div class="fix-item-text" style="font-size:14px;line-height:1.5">' + num + esc(it.text) + '</div>'
+           + '<div class="fix-item-meta" style="font-size:11px;color:var(--color-text-muted);margin-top:4px">' + esc(src) + (paraIdx != null ? ' · параграф ' + (paraIdx + 1) : '') + (it.rationale ? ' · ' + esc(it.rationale).slice(0, 120) : '') + '</div>'
+           + '</div></label>';
+    }).join('');
+    var totalMeta = '5 из ' + (reconciled.reconciled || []).length + ' (всего было ' + (reconciled.total_input || '?') + ')';
+    return '<div class="fix-group open" style="border:2px solid #16a34a;background:#f0fdf4">'
+         + '<div class="fix-group-head" style="background:#dcfce7"><span class="fix-group-name">📋 ТОП-5 главных рекомендаций (главный бот)</span><span class="fix-group-meta">' + totalMeta + '</span></div>'
+         + '<div class="fix-group-body" style="padding:var(--space-3) var(--space-4)">'
+         + (reconciled.summary ? '<div style="padding:var(--space-2) var(--space-3);font-size:13px;color:var(--color-text-muted);background:#fff;border-radius:4px;margin-bottom:var(--space-3)">' + esc(reconciled.summary).slice(0, 300) + '</div>' : '')
+         + rendered
+         + '<div style="text-align:center;padding:var(--space-3) 0 0;font-size:11px;color:var(--color-text-muted)">Голосовые приоритет №1 (золотая). Остальное — спрятано в аккордеонах ниже.</div>'
+         + '</div></div>';
+  }
+
+  function renderChiefElderTop4(top4, idxFn) {
+    var items = top4.map(function(it) {
+      var kindLabel = it.kind === 'cut' ? '✂️ резать' : (it.kind === 'strengthen' ? '💪 усилить' : '📜 verdict');
+      var meta = it.elder + ' · ' + kindLabel;
+      /* По умолчанию НЕ checked — это priority recommendations, но Pavel сам решает */
+      var idx = idxFn();
+      return '<label class="fix-item fix-item-chief-elder">'
+           + '<input type="checkbox" data-critic="chief_elder" data-fix-idx="' + idx + '" data-para-idx="" checked>'
+           + '<div class="fix-item-body">'
+           + '<div class="fix-item-text">' + esc(it.text) + '</div>'
+           + '<div class="fix-item-meta">' + esc(meta) + '</div>'
+           + '</div></label>';
+    }).join('');
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">👑 Главный старейшина — топ-4 из совета</span><span class="fix-group-meta">синтез по 1 от каждого старейшины</span></div><div class="fix-group-body">' + items + '</div></div>';
+  }
+
+  function renderPressurePoints(synth, idxFn) {
+    var pts = synth.pressure_points || [];
+    var items = pts.map(function(pp) {
+      var critics = (pp.critics_flagging || []).join(', ');
+      var meta = 'параграф ' + ((pp.para_idx || 0) + 1) + ' · ' + critics;
+      var text = (pp.fix || pp.issue || '').replace(/\s+/g, ' ');
+      return renderCheckItem('synthesis', pp.para_idx, text, meta, idxFn);
+    }).join('');
+    var top5 = (synth.top_5_priority_edits || []).map(function(t, i) {
+      return renderCheckItem('synthesis_top5', null, t, 'приоритет ' + (i+1), idxFn);
+    }).join('');
+    var head = synth.register_shift_needed ? ('<div style="padding:var(--space-3);font-size:var(--text-sm);color:var(--color-text);background:#fffbeb;border-left:3px solid #f59e0b;margin-bottom:var(--space-3);"><b>Сдвиг регистра:</b> ' + esc(synth.register_shift_needed) + '</div>') : '';
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">🎯 Главные правки — синтез 15 критиков</span><span class="fix-group-meta">' + pts.length + ' давящих точек</span></div><div class="fix-group-body">' + head + items + (top5 ? '<div style="padding:var(--space-3);font-weight:600;font-size:var(--text-sm)">Топ-5 приоритетов:</div>' + top5 : '') + '</div></div>';
+  }
+
+  function renderLostVoice(missing, additions, idxFn) {
+    var missItems = missing.map(function(m) {
+      var text = (typeof m === 'string') ? m : (m.idea || m.text || m.comment || m.suggestion || JSON.stringify(m));
+      var meta = (m.source_file ? 'из ' + m.source_file : '') || (m.priority ? 'приоритет ' + m.priority : '');
+      return renderCheckItem('voice_missing', null, '↩ ВЕРНУТЬ: ' + text, meta, idxFn);
+    }).join('');
+    var addItems = (additions || []).map(function(a) {
+      var text = (typeof a === 'string') ? a : (a.text || a.comment || JSON.stringify(a));
+      return renderCheckItem('voice_addition', null, '⚠ ДОБАВЛЕНО Opus-ом (проверь): ' + text, '', idxFn);
+    }).join('');
+    var addBlock = addItems ? '<div style="padding:var(--space-2) var(--space-3);font-weight:600;font-size:var(--text-sm)">⚠ Добавления Opus-а без основания в голосовых (' + (additions || []).length + '):</div>' + addItems : '';
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">🎙️ Потерянное с голосовых надиктовок</span><span class="fix-group-meta">' + missing.length + ' идей</span></div><div class="fix-group-body">' + missItems + addBlock + '</div></div>';
+  }
+
+  function renderCouncilElders(council, idxFn) {
+    var elderNames = {
+      'council_tolstoy': '✍️ Толстой',
+      'council_jung': '🧠 Юнг',
+      'council_mckenna': '🍄 Маккенна',
+      'council_castaneda': '🗡️ Кастанеда (дон Хуан)',
+      'council_john': '📜 Иоанн Богослов',
+      'council_laotzu': '☯️ Лао-цзы',
+    };
+    var groups = Object.keys(council).map(function(cid) {
+      var c = council[cid];
+      var r = (c && c.result) || {};
+      var name = elderNames[cid] || c.label || cid;
+      var verdict = r.verdict || r.summary || '';
+      var cuts = r.top_3_cuts || r.cuts || [];
+      var strs = r.top_3_strengthen || r.strengthen || [];
+      var inner = '';
+      if (verdict) inner += '<div style="padding:var(--space-3);font-style:italic;color:var(--color-text);background:var(--color-bg-app);border-radius:var(--radius-sm);margin:var(--space-2) 0">«' + esc(verdict).slice(0, 600) + '»</div>';
+      if (cuts.length) {
+        inner += '<div style="padding:var(--space-2) var(--space-3);font-weight:600;font-size:var(--text-sm)">✂️ РЕЗАТЬ:</div>';
+        inner += cuts.map(function(t) {
+          var text = typeof t === 'string' ? t : (t.text || JSON.stringify(t));
+          return renderCheckItem(cid, null, text, 'резать', idxFn);
+        }).join('');
+      }
+      if (strs.length) {
+        inner += '<div style="padding:var(--space-2) var(--space-3);font-weight:600;font-size:var(--text-sm)">💪 УСИЛИТЬ:</div>';
+        inner += strs.map(function(t) {
+          var text = typeof t === 'string' ? t : (t.text || JSON.stringify(t));
+          return renderCheckItem(cid, null, text, 'усилить', idxFn);
+        }).join('');
+      }
+      return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">' + name + '</span><span class="fix-group-meta">' + (cuts.length + strs.length) + ' пунктов</span></div><div class="fix-group-body">' + inner + '</div></div>';
+    }).join('');
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">🧙 Совет старейшин (6 классиков)</span><span class="fix-group-meta">' + Object.keys(council).length + ' голосов</span></div><div class="fix-group-body">' + groups + '</div></div>';
+  }
+
+  function renderTechnicalAxes(technical, idxFn) {
+    var labels = {
+      'voice_purity': 'Чистота голоса Великого Духа',
+      'ai_tells': 'AI-следы (паттерны)',
+      'mystical_depth': 'Мистическая глубина (тело, видения, авторитет)',
+      'rhythm': 'Ритм Хилингода',
+      'sacred_lexicon': 'Сакральная лексика',
+      'paragraph_architecture': 'Архитектура абзацев',
+      'opening_closing': 'Первая и последняя фраза',
+    };
+    var groups = Object.keys(technical).map(function(cid) {
+      var c = technical[cid];
+      var r = (c && c.result) || {};
+      var score = r.score;
+      /* UC-121: для ai_tells показываем ai_probability вместо score */
+      if (cid === 'ai_tells' && r.ai_probability != null) score = r.ai_probability;
+      var label = labels[cid] || c.label || cid;
+      var summary = r.summary || r.honest_summary || '';
+      /* Универсальный сбор violations из разных форматов */
+      var viol = r.violations || r.weak_passages || r.disguised_lists || r.transition_failures || r.hits || [];
+      if (!Array.isArray(viol)) viol = [];
+      /* Special: opening_closing — отдельные rewrite_suggestions */
+      var oc = [];
+      if (cid === 'opening_closing') {
+        if (r.opening_rewrite_suggestion) oc.push({ text: '🚪 ОТКРЫТИЕ: ' + r.opening_rewrite_suggestion, meta: 'переписать первую фразу (' + (r.opening_score || '?') + '/100, тип: ' + (r.opening_type || '?') + ')' });
+        if (r.closing_rewrite_suggestion) oc.push({ text: '🏁 ЗАКРЫТИЕ: ' + r.closing_rewrite_suggestion, meta: 'переписать последнюю фразу (' + (r.closing_score || '?') + '/100, тип: ' + (r.closing_type || '?') + ')' });
+      }
+      var items = viol.slice(0, 12).map(function(v) {
+        /* UC-121: ai_tells hits имеет специальную схему — pattern + text */
+        var text;
+        if (cid === 'ai_tells' && v.pattern) {
+          text = 'AI-паттерн «' + v.pattern + '» в: «' + (v.text || '').slice(0, 200) + '»';
+        } else {
+          text = v.fix || v.why || v.issue || v.message || v.recommendation || v.how_to_deepen || (typeof v === 'string' ? v : JSON.stringify(v));
+        }
+        var paraIdx = v.para_idx != null ? v.para_idx : (v.paragraph_idx != null ? v.paragraph_idx : null);
+        var meta = paraIdx != null ? ('параграф ' + (paraIdx + 1)) : (v.category || v.pattern || '');
+        return renderCheckItem(cid, paraIdx, text, meta, idxFn);
+      }).join('');
+      var ocItems = oc.map(function(o) { return renderCheckItem(cid, null, o.text, o.meta, idxFn); }).join('');
+      var sub = (cid === 'mystical_depth' && r.embodiment_score != null) ? ('<div style="font-size:11px;color:var(--color-text-muted);padding:0 var(--space-3) var(--space-2)">embodiment ' + r.embodiment_score + ' · temporal_depth ' + (r.temporal_depth_score || '?') + '</div>') : '';
+      var sumBlock = summary ? '<div style="padding:var(--space-2) var(--space-3);font-size:var(--text-sm);color:var(--color-text-muted)">' + esc(summary).slice(0, 400) + '</div>' : '';
+      return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">' + label + '</span><span class="fix-group-meta">' + (score != null ? score + '/100' : '—') + ' · ' + (viol.length + oc.length) + ' пунктов</span></div><div class="fix-group-body">' + sumBlock + sub + ocItems + items + '</div></div>';
+    }).join('');
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">📊 Технические оси (7 критиков)</span><span class="fix-group-meta">' + Object.keys(technical).length + ' осей</span></div><div class="fix-group-body">' + groups + '</div></div>';
+  }
+
+  function renderResonanceCritic(resCritic, idxFn) {
+    var r = (resCritic && resCritic.result) || {};
+    var score = r.score;
+    var inner = '';
+    if (r.summary) inner += '<div style="padding:var(--space-2) var(--space-3);font-size:var(--text-sm);color:var(--color-text-muted)">' + esc(r.summary).slice(0, 500) + '</div>';
+    var viol = r.weak_passages || r.violations || [];
+    inner += viol.slice(0, 10).map(function(v) {
+      var text = v.fix || v.why || v.issue || v.how_to_deepen || JSON.stringify(v);
+      var paraIdx = v.para_idx;
+      var meta = paraIdx != null ? 'параграф ' + (paraIdx + 1) : '';
+      return renderCheckItem('resonance', paraIdx, text, meta, idxFn);
+    }).join('');
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">🔊 Читательский резонанс</span><span class="fix-group-meta">' + (score != null ? score + '/100' : '—') + '</span></div><div class="fix-group-body">' + inner + '</div></div>';
+  }
+
+  function renderPersonas(personas, idxFn) {
+    var icons = { musk: '🚀', thiel: '🎯', rogan: '🎙️', huberman: '🧬', ogilvy: '💼' };
+    var groups = Object.keys(personas).map(function(pk) {
+      var p = personas[pk];
+      if (!p || !p.ok) return '';
+      var name = p.persona_name || pk;
+      var inner = '';
+      [['loves', '✓ Нравится', 'love'], ['loses', '✗ Теряется', 'lose'], ['observations', '• Наблюдения', 'obs'], ['suggestions', '→ Добавить', 'add']].forEach(function(spec) {
+        var sec = spec[0], lbl = spec[1];
+        var arr = p[sec] || [];
+        if (!arr.length) return;
+        inner += '<div style="padding:var(--space-2) var(--space-3);font-weight:600;font-size:var(--text-sm)">' + lbl + ':</div>';
+        inner += arr.map(function(it) {
+          var text = (typeof it === 'string') ? it : (it.comment || JSON.stringify(it));
+          return renderCheckItem('persona_' + pk + '_' + sec, null, text, name, idxFn);
+        }).join('');
+      });
+      return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">' + (icons[pk] || '👤') + ' ' + esc(name) + '</span><span class="fix-group-meta">' + ((p.loves||[]).length + (p.loses||[]).length + (p.observations||[]).length + (p.suggestions||[]).length) + ' пунктов</span></div><div class="fix-group-body">' + inner + '</div></div>';
+    }).join('');
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">🎤 Современная аудитория (5 личностей)</span><span class="fix-group-meta">stress-test для современного читателя</span></div><div class="fix-group-body">' + groups + '</div></div>';
+  }
+
+  function renderDensityCard(d) {
+    var la = d.local_assessment || {};
+    var rows = ['size','rhythm','water'].map(function(ax) {
+      var v = la[ax] || {};
+      return '<div style="padding:4px var(--space-3);font-size:var(--text-sm)"><b>' + ax + ':</b> <span style="color:' + (v.verdict === 'ok' ? '#15803d' : '#b45309') + '">' + esc(v.verdict || '?') + '</span> — ' + esc(v.reason || '') + '</div>';
+    }).join('');
+    var m = d.metrics || {};
+    var stats = '<div style="padding:4px var(--space-3);font-size:11px;color:var(--color-text-muted)">' + (m.word_count || '?') + ' слов · ' + (m.para_count || '?') + ' параграфов · ' + (m.choppy_pct || '?') + '% коротких · ' + (m.long_pct || '?') + '% длинных</div>';
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">📏 Плотность / ритм (density)</span></div><div class="fix-group-body">' + stats + rows + '</div></div>';
+  }
+
+  function renderLogicCard(d, idxFn) {
+    var inner = '';
+    if (d.honest_summary) inner += '<div style="padding:var(--space-2) var(--space-3);font-size:var(--text-sm);color:var(--color-text-muted)">' + esc(d.honest_summary).slice(0, 500) + '</div>';
+    var issues = d.issues || [];
+    inner += issues.map(function(it) {
+      var text = (it.issue || it.description || JSON.stringify(it));
+      var paraIdx = it.para_idx;
+      var meta = (paraIdx != null ? 'параграф ' + (paraIdx + 1) + ' · ' : '') + (it.severity || '');
+      return renderCheckItem('logic', paraIdx, text + (it.fix ? ' → ' + it.fix : ''), meta, idxFn);
+    }).join('');
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">🧩 Логика (logic-analysis)</span><span class="fix-group-meta">' + (d.overall_logic_score != null ? d.overall_logic_score + '/100 · ' : '') + issues.length + ' замечаний</span></div><div class="fix-group-body">' + inner + '</div></div>';
+  }
+
+  function renderResonanceCard(d, idxFn) {
+    var inner = '';
+    var axes = d.axes || {};
+    inner += Object.keys(axes).map(function(k) {
+      var ax = axes[k] || {};
+      return '<div style="padding:4px var(--space-3);font-size:var(--text-sm)"><b>' + esc(k) + ':</b> ' + (ax.score != null ? ax.score : '?') + '/100 — ' + esc(ax.reason || ax.summary || '').slice(0, 200) + '</div>';
+    }).join('');
+    var weak = d.weak_passages || [];
+    inner += weak.map(function(w) {
+      return renderCheckItem('resonance', w.para_idx, (w.why || w.issue || '') + (w.fix ? ' → ' + w.fix : ''), w.para_idx != null ? 'параграф ' + (w.para_idx + 1) : '', idxFn);
+    }).join('');
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">🔊 Сакральный резонанс</span><span class="fix-group-meta">' + (d.overall_resonance != null ? d.overall_resonance + '/100' : '') + ' · ' + (d.verdict || '') + '</span></div><div class="fix-group-body">' + inner + '</div></div>';
+  }
+
+  function renderHookCliffCard(d, idxFn) {
+    var inner = '';
+    if (d.hook_current) inner += '<div style="padding:var(--space-2) var(--space-3);font-size:var(--text-sm)"><b>Крючок (' + (d.hook_strength || '?') + '/100):</b> «' + esc(d.hook_current).slice(0, 200) + '»</div>';
+    if (d.hook_critique) inner += '<div style="padding:0 var(--space-3) var(--space-2);font-size:var(--text-sm);color:var(--color-text-muted)">' + esc(d.hook_critique).slice(0, 400) + '</div>';
+    (d.hook_suggestions || []).forEach(function(s) {
+      var text = typeof s === 'string' ? s : (s.text || s.comment || JSON.stringify(s));
+      inner += renderCheckItem('hook', 0, '🎣 ОТКРЫТИЕ: ' + text, 'переписать крючок', idxFn);
+    });
+    if (d.cliffhanger_current) inner += '<div style="padding:var(--space-3) var(--space-3) var(--space-2);font-size:var(--text-sm)"><b>Cliffhanger (' + (d.cliffhanger_strength || '?') + '/100):</b> «' + esc(d.cliffhanger_current).slice(0, 200) + '»</div>';
+    if (d.cliffhanger_critique) inner += '<div style="padding:0 var(--space-3) var(--space-2);font-size:var(--text-sm);color:var(--color-text-muted)">' + esc(d.cliffhanger_critique).slice(0, 400) + '</div>';
+    (d.cliffhanger_suggestions || []).forEach(function(s) {
+      var text = typeof s === 'string' ? s : (s.text || s.comment || JSON.stringify(s));
+      inner += renderCheckItem('cliffhanger', -1, '🪝 ЗАКРЫТИЕ: ' + text, 'переписать cliffhanger', idxFn);
+    });
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">🪝 Hook (открытие) + Cliffhanger (закрытие)</span></div><div class="fix-group-body">' + inner + '</div></div>';
+  }
+
+  function renderCoherenceInBook(d, idxFn) {
+    /* UC-117: «Отношение к другим главам» с галочками (все checked по умолчанию). */
+    var duplicates = d.duplicates || [];
+    var inner = '';
+    if (d.this_meta) {
+      inner += '<div style="padding:var(--space-2) var(--space-3);font-size:13px;color:var(--color-text-muted)">'
+             + 'Глава ' + (d.this_meta.number || '?') + ' из книги «' + esc(d.this_meta.book_title || '?') + '». '
+             + 'Параграфов: ' + (d.this_para_count || '?') + '. Найдено повторений с другими главами: <b>' + (d.total_duplicates || 0) + '</b>.'
+             + '</div>';
+    }
+    if (duplicates.length === 0) {
+      inner += '<div style="padding:var(--space-3);color:var(--color-text-muted);font-size:13px;font-style:italic">Нет повторов с другими главами. Глава уникальна.</div>';
+    } else {
+      inner += duplicates.map(function(dup) {
+        var text = dup.text || dup.passage || dup.fragment || '';
+        var with_ch = dup.with_chapter || dup.other_chapter || '?';
+        var paraIdx = dup.para_idx;
+        var fixText = 'Дублирование с «' + with_ch + '»: ' + text.slice(0, 200);
+        var meta = paraIdx != null ? 'параграф ' + (paraIdx + 1) + ' · отключить чтобы оставить как есть' : 'отключи галочку чтобы оставить повтор';
+        return renderCheckItem('coherence_in_book', paraIdx, fixText, meta, idxFn);
+      }).join('');
+    }
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">🔗 Отношение к другим главам — повторение и связь</span><span class="fix-group-meta">' + (d.total_duplicates || 0) + ' повторов</span></div><div class="fix-group-body">' + inner + '</div></div>';
+  }
+
+  function renderStyleCoherenceCard(d, idxFn) {
+    var inner = '';
+    if (d.dominant_register) inner += '<div style="padding:var(--space-2) var(--space-3);font-size:var(--text-sm)"><b>Доминирующий регистр:</b> ' + esc(d.dominant_register) + (d.dominant_voice ? ' (' + esc(d.dominant_voice) + ')' : '') + '</div>';
+    var conflicts = d.local_conflicts || [];
+    inner += conflicts.map(function(c) {
+      var text = (c.issue || c.conflict || JSON.stringify(c));
+      return renderCheckItem('style_coherence', c.para_idx, text + (c.fix ? ' → ' + c.fix : ''), c.para_idx != null ? 'параграф ' + (c.para_idx + 1) : '', idxFn);
+    }).join('');
+    var fixes = d.opus_fixes || [];
+    fixes.forEach(function(f) {
+      var text = (f.fix || f.issue || JSON.stringify(f));
+      inner += renderCheckItem('style_opus_fix', f.para_idx, text, f.para_idx != null ? 'параграф ' + (f.para_idx + 1) : '', idxFn);
+    });
+    return '<div class="fix-group"><div class="fix-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span class="fix-group-name">🎨 Стилевая связность</span><span class="fix-group-meta">' + (conflicts.length + fixes.length) + ' конфликтов</span></div><div class="fix-group-body">' + inner + '</div></div>';
+  }
+
+  function updateApplyCount() {
+    var checked = document.querySelectorAll('#analysisFixes input[type=checkbox]:checked').length;
+    var btn = document.getElementById('applyCheckedBtn');
+    if (btn) btn.textContent = 'Применить отмеченное' + (checked > 0 ? ' (' + checked + ')' : '');
+    /* UC-133: Журналист badge — сколько потенциальных вопросов (max 5) */
+    var badge = document.getElementById('journalistBadge');
+    if (badge) {
+      if (checked > 0) {
+        var estimatedQs = Math.min(5, Math.max(1, Math.ceil(checked / 3)));
+        badge.textContent = estimatedQs + ' Q';
+        badge.style.display = '';
+        badge.title = 'Журналист задаст до ' + estimatedQs + ' вопросов на основе ' + checked + ' отмеченных правок';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  }
+
+  /* UC-136: при возврате на страницу — тихо подтягиваем анализ из кэша.
+     Если был открыт ранее (analysis_open в localStorage) ИЛИ есть свежий
+     прогон критиков — разворачиваем панель автоматически. Не требует клика. */
+  /* UC-137: проверяем нет ли job-ов которые идут прямо сейчас (apply-targeted,
+     super-rewrite, critics, и т.п.) и показываем прогресс. Опрос каждые 10 с. */
+  var ACTIVE_JOBS_TIMER = null;
+  function startActiveJobsWatcher() {
+    if (ACTIVE_JOBS_TIMER) { clearInterval(ACTIVE_JOBS_TIMER); ACTIVE_JOBS_TIMER = null; }
+    if (!CURRENT_CHAPTER) return;
+    checkActiveJobs(); // первый тик сразу
+    ACTIVE_JOBS_TIMER = setInterval(checkActiveJobs, 10000);
+  }
+  function stopActiveJobsWatcher() {
+    if (ACTIVE_JOBS_TIMER) { clearInterval(ACTIVE_JOBS_TIMER); ACTIVE_JOBS_TIMER = null; }
+  }
+  var LAST_ACTIVE_JOB_KEY = null;
+  function checkActiveJobs() {
+    if (!CURRENT_CHAPTER) return;
+    fetch('/api/jobs/active?chapter_id=' + encodeURIComponent(CURRENT_CHAPTER))
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) {
+        if (!d) { hideActiveJobBanner(); return; }
+        var active = (d.active || []);
+        var done = (d.recent_done || []);
+        if (active.length > 0) {
+          var j = active[0];
+          renderActiveJobBanner(j);
+          var key = j.op_type + '__' + j.started_at;
+          LAST_ACTIVE_JOB_KEY = key;
+        } else {
+          hideActiveJobBanner();
+          /* Если только что закончилась работа над текущей главой —
+             тихо подтянем свежий draft и анализ. */
+          if (LAST_ACTIVE_JOB_KEY) {
+            LAST_ACTIVE_JOB_KEY = null;
+            if (done.length) {
+              toast('Готово: ' + (done[0].op_type || 'операция') + ' завершилась');
+              loadChapter(CURRENT_CHAPTER);
+            }
+          }
+        }
+      })
+      .catch(function() { /* сеть — пропускаем */ });
+  }
+  function renderActiveJobBanner(j) {
+    var op = j.op_type || 'операция';
+    var elapsed = j.elapsed_seconds || 0;
+    var remain = j.remaining_seconds || 0;
+    var labelMap = {
+      'apply-targeted': 'Применяю отмеченные правки',
+      'super-rewrite': 'Переписываю всю главу',
+      'critics': 'Прогоняю критиков',
+      'personas': 'Опрашиваю персон',
+    };
+    var label = labelMap[op] || op;
+    var b = document.getElementById('activeJobBanner');
+    if (!b) {
+      b = document.createElement('div');
+      b.id = 'activeJobBanner';
+      b.style.cssText = 'position:sticky;top:0;z-index:90;background:var(--color-accent,#7855e8);color:#fff;padding:10px 16px;font-size:14px;display:flex;gap:12px;align-items:center;border-radius:6px;margin-bottom:12px;box-shadow:0 2px 6px rgba(0,0,0,0.1);';
+      var host = document.getElementById('chapterBody') || document.querySelector('main') || document.body;
+      host.insertBefore(b, host.firstChild);
+    }
+    var mmss = function(s) { var m = Math.floor(s/60), x = s%60; return m + ':' + (x<10?'0':'') + x; };
+    b.innerHTML = '<span style="font-size:18px">⏳</span>' +
+      '<span><b>' + label + '</b> — идёт ' + mmss(elapsed) + ', осталось ~' + mmss(remain) + '</span>' +
+      '<span style="margin-left:auto;opacity:.85;font-size:12px">страница не нужна, работа идёт на сервере</span>';
+  }
+  function hideActiveJobBanner() {
+    var b = document.getElementById('activeJobBanner');
+    if (b) b.remove();
+  }
+
+  function restoreAnalysisOnReturn() {
+    if (!CURRENT_CHAPTER) return;
+    var openPref = null;
+    try { openPref = localStorage.getItem('codex2.editor.analysis_open'); } catch (e) {}
+    /* '0' = пользователь явно закрыл, уважаем; данные всё равно тянем тихо. */
+    var allowAutoOpen = openPref !== '0';
+    fetchAnalysisReport(CURRENT_CHAPTER)
+      .then(function() {
+        if (!allowAutoOpen) return;
+        var hasData = !!(ANALYSIS_DATA && (
+          ANALYSIS_DATA.critics ||
+          (ANALYSIS_DATA.voice_missing_ideas && ANALYSIS_DATA.voice_missing_ideas.length) ||
+          ANALYSIS_DATA.personas ||
+          ANALYSIS_DATA.density || ANALYSIS_DATA.logic ||
+          ANALYSIS_DATA.resonance || ANALYSIS_DATA.hook_cliff ||
+          ANALYSIS_DATA.style_coherence
+        ));
+        var hasReconciled = !!(RECONCILED_CACHE && RECONCILED_CACHE.reconciled && RECONCILED_CACHE.reconciled.length);
+        var wasOpen = openPref === '1';
+        if (wasOpen || hasData || hasReconciled) {
+          var p = document.getElementById('analysisPanel');
+          if (p) p.classList.add('visible');
+          try { localStorage.setItem('codex2.editor.analysis_open', '1'); } catch (e) {}
+        }
+      })
+      .catch(function() { /* нет кэша — просто молчим */ });
+  }
+
+  function loadLatestAnalysis() {
+    if (!CURRENT_CHAPTER) return;
+    setAnalysisStatus('', 'загрузка');
+    /* Endpoint /api/critics/eligible-chapters содержит last_critique_at для главы.
+       Берём свежий CRITICS-<chapter>-<ts>.json через статическую раздачу */
+    fetch('/api/critics/eligible-chapters')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var found = (d.chapters || []).find(function(c) { return c.chapter_id === CURRENT_CHAPTER; });
+        if (found && found.last_critique_at) {
+          setAnalysisStatus('done', 'последний прогон ' + found.last_critique_at);
+          /* Загрузим JSON отчёта через прямой GET reports/CRITICS-<id>-<ts>.json
+             Но prefer полный JSON через api. Если нет endpoint, fetch через static. */
+          return fetchAnalysisReport(CURRENT_CHAPTER);
+        } else {
+          setAnalysisStatus('', 'не запускалось');
+          renderAnalysis(null);
+        }
+      })
+      .catch(function(e) {
+        setAnalysisStatus('error', 'ошибка');
+      });
+  }
+
+  function fetchAnalysisReport(chapterId) {
+    /* UC-115/UC-126: full-analysis + параллельно подтягиваем reconciled cache */
+    var reconciledPromise = fetch('/api/editor/reconciled?chapter_id=' + encodeURIComponent(chapterId))
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) {
+        if (d && d.reconciled) RECONCILED_CACHE = d;
+      })
+      .catch(function() { /* нет кэша — ок */ });
+    return Promise.all([
+      reconciledPromise,
+      fetch('/api/editor/full-analysis?chapter_id=' + encodeURIComponent(chapterId)).then(function(r) {
+        if (!r.ok) throw new Error('no full-analysis endpoint');
+        return r.json();
+      })
+    ])
+      .then(function(results) {
+        var d = results[1];
+        renderAnalysis(d);
+        if (d.critics_run_at) {
+          setAnalysisStatus('done', 'критики ' + fmtAgo(d.critics_run_at));
+        } else {
+          setAnalysisStatus('idle', 'критиков не было; запусти');
+        }
+        /* UC-126: подключаем quick-reconcile-button если есть */
+        var qrb = document.getElementById('quickReconcileBtn');
+        if (qrb) qrb.addEventListener('click', startReconcile);
+      })
+      .catch(function(e) {
+        setAnalysisStatus('error', 'ошибка: ' + e.message);
+        renderAnalysis(null);
+      });
+  }
+
+  /* ФАЗА 3 (2026-05-24): Мастер-аудит. Один Opus с substrate, 3-5 правок, голос Pavel-а. */
+  function startMasterAudit() {
+    if (!CURRENT_CHAPTER) { toast('Сначала выбери главу'); return; }
+    var btn = document.getElementById('masterAuditBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Мастер думает (~3 мин)…'; }
+    setAnalysisStatus('running', 'Мастер-аудит запущен…');
+    fetch('/api/chapter/master-audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (btn) { btn.disabled = false; btn.textContent = '⭐ Мастер'; }
+        if (d.error) {
+          setAnalysisStatus('error', d.error);
+          toast('Мастер не справился: ' + d.error, 6000);
+          return;
+        }
+        setAnalysisStatus('done', 'Мастер: ' + (d.edits || []).length + ' правок');
+        renderMasterAudit(d);
+      })
+      .catch(function(e) {
+        if (btn) { btn.disabled = false; btn.textContent = '⭐ Мастер'; }
+        setAnalysisStatus('error', 'сеть');
+      });
+  }
+
+  function loadMasterAuditCache() {
+    if (!CURRENT_CHAPTER) return;
+    fetch('/api/chapter/master-audit?chapter_id=' + encodeURIComponent(CURRENT_CHAPTER))
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) {
+        if (d && d.ok && (d.edits || []).length) {
+          renderMasterAudit(d);
+        }
+      })
+      .catch(function() { /* нет кэша — ок */ });
+  }
+
+  function renderMasterAudit(data) {
+    var host = document.getElementById('analysisFixes');
+    if (!host) return;
+    var edits = data.edits || [];
+    var score = data.score_estimate;
+    var verdict = data.verdict || '';
+
+    var html = '<div class="master-audit-card" style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;border-radius:8px;padding:16px;margin:0 0 20px 0;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+    html += '<h3 style="margin:0;font-size:18px;color:#78350f;">⭐ Мастер: ' + edits.length + ' главных правок</h3>';
+    if (score != null) {
+      html += '<span style="background:#78350f;color:#fef3c7;padding:4px 10px;border-radius:14px;font-size:13px;font-weight:600;">оценка: ' + score + '/100</span>';
+    }
+    html += '</div>';
+    if (verdict) {
+      html += '<p style="margin:0 0 12px 0;font-size:14px;color:#78350f;font-style:italic;">' + esc(verdict) + '</p>';
+    }
+    edits.forEach(function(e, idx) {
+      var cat = e.category || '';
+      var catColor = { voice: '#7c3aed', canon: '#dc2626', cliche: '#ea580c', structure: '#0891b2', 'missing-idea': '#16a34a' }[cat] || '#6b7280';
+      html += '<div style="background:white;border-radius:6px;padding:12px;margin-bottom:10px;border-left:4px solid ' + catColor + ';">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:6px;">';
+      html += '<div><b>Правка ' + (idx + 1) + ' · П' + (e.para_idx != null ? e.para_idx : '?') + '</b>';
+      if (cat) html += ' <span style="background:' + catColor + ';color:white;padding:1px 6px;border-radius:8px;font-size:11px;margin-left:4px;">' + esc(cat) + '</span>';
+      html += '</div>';
+      html += '<button class="btn btn-primary btn-sm" onclick="applyMasterEdit(' + idx + ')">Применить</button>';
+      html += '</div>';
+      html += '<p style="margin:6px 0 4px 0;color:#374151;"><b>Проблема:</b> ' + esc(e.issue || '') + '</p>';
+      html += '<p style="margin:6px 0 4px 0;color:#111;background:#f9fafb;padding:8px;border-radius:4px;border:1px solid #e5e7eb;"><b>Замена:</b><br>' + esc(e.fix || '') + '</p>';
+      if (e.rationale) html += '<p style="margin:6px 0 0 0;color:#6b7280;font-size:13px;font-style:italic;">' + esc(e.rationale) + '</p>';
+      html += '</div>';
+    });
+    html += '</div>';
+
+    // Запоминаем для applyMasterEdit
+    window.__MASTER_AUDIT_DATA = data;
+    host.innerHTML = html + host.innerHTML;
+  }
+
+  function applyMasterEdit(idx) {
+    var d = window.__MASTER_AUDIT_DATA;
+    if (!d || !d.edits || !d.edits[idx]) return;
+    var e = d.edits[idx];
+    if (!confirm('Применить правку к параграфу ' + e.para_idx + '?')) return;
+    var selections = [{
+      source: 'master_audit',
+      id: 'master_' + idx,
+      category: e.category || 'правка',
+      text: 'Заменить параграф ' + e.para_idx + ' на: ' + (e.fix || ''),
+      para_idx: e.para_idx,
+      suggested_after_paragraph: ''
+    }];
+    fetch('/api/chapter/' + encodeURIComponent(CURRENT_CHAPTER) + '/apply-targeted', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selections: selections })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (r.ok) {
+          toast('Применено. Параграфов изменено: ' + (r.changed_paras || '?'), 4000);
+          loadChapter(CURRENT_CHAPTER);
+        } else {
+          toast('Ошибка: ' + (r.error || '?'), 6000);
+        }
+      })
+      .catch(function(err) { toast('Сеть: ' + err.message, 5000); });
+  }
+
+  function startAnalysis() {
+    if (!CURRENT_CHAPTER) {
+      toast('Сначала выбери главу');
+      return;
+    }
+    setAnalysisStatus('running', 'запускаю 5 критиков (3-5 мин)…');
+    document.getElementById('analysisRunBtn').disabled = true;
+    fetch('/api/critics/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok === false || d.error) {
+          setAnalysisStatus('error', d.error || 'ошибка запуска');
+          document.getElementById('analysisRunBtn').disabled = false;
+          return;
+        }
+        toast('Анализ запущен в фоне. Проверим результат через минуту.', 4000);
+        /* Поллим раз в 60 сек */
+        if (ANALYSIS_POLL_TIMER) clearInterval(ANALYSIS_POLL_TIMER);
+        ANALYSIS_POLL_TIMER = setInterval(function() {
+          loadLatestAnalysis();
+        }, 60000);
+        setTimeout(function() {
+          document.getElementById('analysisRunBtn').disabled = false;
+        }, 90000);
+      })
+      .catch(function(e) {
+        setAnalysisStatus('error', 'сеть');
+        document.getElementById('analysisRunBtn').disabled = false;
+      });
+  }
+
+  function startPersonas() {
+    if (!CURRENT_CHAPTER) { toast('Сначала выбери главу'); return; }
+    var btn = document.getElementById('personasRunBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Запускаю…'; }
+    fetch('/api/personas/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok === false || d.error) {
+          toast('Ошибка: ' + (d.error || '?'));
+          if (btn) { btn.disabled = false; btn.textContent = 'Запустить персон'; }
+          return;
+        }
+        toast('Запустил 5 персон (Маск/Тиль/Роган/Хуберман/Огилви). Результат через 3-5 минут.', 5000);
+        /* Поллим раз в 30 сек */
+        if (PERSONAS_POLL_TIMER) clearInterval(PERSONAS_POLL_TIMER);
+        PERSONAS_POLL_TIMER = setInterval(function() {
+          loadLatestAnalysis();
+        }, 30000);
+        setTimeout(function() {
+          if (btn) { btn.disabled = false; btn.textContent = 'Запустить персон'; }
+        }, 60000);
+      })
+      .catch(function(e) {
+        toast('Сеть: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = 'Запустить персон'; }
+      });
+  }
+
+  function collectCheckedFixes() {
+    var checked = document.querySelectorAll('#analysisFixes input[type=checkbox]:checked');
+    var fixes = [];
+    checked.forEach(function(cb) {
+      var label = cb.closest('.fix-item');
+      var text = label ? label.querySelector('.fix-item-text').textContent : '';
+      var meta = label ? ((label.querySelector('.fix-item-meta') || {}).textContent || '') : '';
+      fixes.push({
+        critic: cb.dataset.critic,
+        para_idx: cb.dataset.paraIdx ? parseInt(cb.dataset.paraIdx, 10) : null,
+        text: text,
+        meta: meta,
+      });
+    });
+    return fixes;
+  }
+
+  /* UC-119: запускаем Журналиста перед apply */
+  function startJournalistBeforeApply() {
+    var fixes = collectCheckedFixes();
+    if (fixes.length === 0) {
+      toast('Сначала отметь правки галочками');
+      return;
+    }
+    PENDING_APPLY_FIXES = fixes;
+    var panel = document.getElementById('journalistPanel');
+    panel.style.display = 'block';
+    document.getElementById('journalistStatus').textContent = 'думает над вопросом…';
+    document.getElementById('journalistQA').innerHTML = '<div style="color:var(--color-text-muted);padding:var(--space-3)">Журналист изучает выбранные правки и текущую главу…</div>';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    fetch('/api/editor/journalist/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER, fixes: fixes })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.ok) {
+          toast('Журналист: ' + (d.error || '?'), 6000);
+          document.getElementById('journalistStatus').textContent = 'ошибка';
+          return;
+        }
+        JOURNALIST_SESSION_ID = d.session_id;
+        renderJournalistSession({ qa: [{ q: d.question, a: null }], complete: false });
+        document.getElementById('journalistStatus').textContent = 'вопрос 1 из 5';
+      })
+      .catch(function(e) {
+        toast('Сеть: ' + e.message, 5000);
+        document.getElementById('journalistStatus').textContent = 'сеть';
+      });
+  }
+
+  function renderJournalistSession(sess) {
+    var box = document.getElementById('journalistQA');
+    var html = (sess.qa || []).map(function(qa, i) {
+      var aHtml = qa.a ? '<div class="qa-a">' + esc(qa.a) + '</div>' : (i === sess.qa.length - 1 && !sess.complete ? '<div class="qa-a pending">Ждёт твой ответ ниже…</div>' : '');
+      return '<div class="qa-row"><div class="qa-q">' + esc(qa.q) + '</div>' + aHtml + '</div>';
+    }).join('');
+    if (sess.complete) {
+      html += '<div style="padding:var(--space-3);background:#dcfce7;border-radius:var(--radius-sm);font-size:14px">'
+            + '✓ Журналист закончил. ' + (sess.summary ? esc(sess.summary) : '') + '</div>'
+            + '<div style="padding:var(--space-3);text-align:center"><button class="btn btn-primary" id="proceedToApplyBtn">Применить правки с твоими ответами →</button></div>';
+      document.getElementById('journalistInputRow').style.display = 'none';
+    } else {
+      document.getElementById('journalistInputRow').style.display = '';
+    }
+    box.innerHTML = html;
+    var proceed = document.getElementById('proceedToApplyBtn');
+    if (proceed) proceed.addEventListener('click', proceedApplyAfterJournalist);
+  }
+
+  function submitJournalistAnswer() {
+    if (!JOURNALIST_SESSION_ID) return;
+    var ta = document.getElementById('journalistAnswer');
+    var text = (ta.value || '').trim();
+    if (!text) { toast('Напиши ответ'); return; }
+    var btn = document.getElementById('journalistAnswerBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Отправляю…'; }
+    fetch('/api/editor/journalist/answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: JOURNALIST_SESSION_ID, answer: text })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.ok) {
+          toast('Журналист: ' + (d.error || '?'), 6000);
+          if (btn) { btn.disabled = false; btn.textContent = 'Отправить ответ →'; }
+          return;
+        }
+        ta.value = '';
+        /* Загрузим обновлённую сессию через UI-апдейт */
+        var existingQA = []; /* пересоберём из JSON */
+        fetch('/api/editor/journalist/answer', { method: 'GET' }).catch(function() {});
+        /* Простой инкремент: добавим old answer + new question */
+        var currentBox = document.getElementById('journalistQA');
+        /* подтянем сессию из памяти — заменяем последний qa.a */
+        var qaRows = currentBox.querySelectorAll('.qa-row');
+        var lastRow = qaRows[qaRows.length - 1];
+        if (lastRow) {
+          var pending = lastRow.querySelector('.qa-a.pending');
+          if (pending) { pending.outerHTML = '<div class="qa-a">' + esc(text) + '</div>'; }
+        }
+        if (d.complete) {
+          var box = document.getElementById('journalistQA');
+          box.insertAdjacentHTML('beforeend', '<div style="padding:var(--space-3);background:#dcfce7;border-radius:var(--radius-sm);font-size:14px;margin-top:var(--space-3)">✓ Журналист закончил. ' + (d.summary ? esc(d.summary) : '') + '</div><div id="autoRewriteStatus" style="padding:var(--space-3);text-align:center;font-size:14px"><div style="margin-bottom:var(--space-2)">⏳ Автоматически переписываю главу через Opus 4.7 с твоими ответами…</div><div style="color:var(--color-text-muted);font-size:12px">Это займёт 3-7 минут. Можешь не ждать — окно обновится автоматически когда готово.</div></div>');
+          document.getElementById('journalistInputRow').style.display = 'none';
+          document.getElementById('journalistStatus').textContent = 'готово · ' + (d.qa_count || '?') + ' Q&A · авто-рерайт';
+          /* UC-127: автоматически запускаем apply-targeted после финального ответа */
+          setTimeout(autoRewriteAfterJournalist, 1500);
+        } else if (d.question) {
+          box = document.getElementById('journalistQA');
+          box.insertAdjacentHTML('beforeend', '<div class="qa-row"><div class="qa-q">' + esc(d.question) + '</div><div class="qa-a pending">Ждёт твой ответ ниже…</div></div>');
+          document.getElementById('journalistStatus').textContent = 'вопрос ' + (d.qa_count || '?') + ' из 5';
+          ta.focus();
+        }
+        if (btn) { btn.disabled = false; btn.textContent = 'Отправить ответ →'; }
+      })
+      .catch(function(e) {
+        toast('Сеть: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = 'Отправить ответ →'; }
+      });
+  }
+
+  function skipJournalist() {
+    if (!window.confirm('Пропустить Журналиста и применить правки сразу?')) return;
+    document.getElementById('journalistPanel').style.display = 'none';
+    proceedApplyAfterJournalist();
+  }
+
+  /* UC-134: пропустить отдельный ВОПРОС Журналиста, не всю сессию */
+  function skipJournalistQuestion() {
+    if (!JOURNALIST_SESSION_ID) return;
+    var btn = document.getElementById('journalistSkipQBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Прошу другой вопрос…'; }
+    fetch('/api/editor/journalist/answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: JOURNALIST_SESSION_ID, answer: '', skip: true })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.ok) {
+          toast('Journalist: ' + (d.error || '?'), 5000);
+          if (btn) { btn.disabled = false; btn.textContent = '⏭ Пропустить вопрос'; }
+          return;
+        }
+        /* Помечаем предыдущий вопрос как skipped в UI */
+        var currentBox = document.getElementById('journalistQA');
+        var qaRows = currentBox.querySelectorAll('.qa-row');
+        var lastRow = qaRows[qaRows.length - 1];
+        if (lastRow) {
+          var pending = lastRow.querySelector('.qa-a.pending');
+          if (pending) { pending.outerHTML = '<div class="qa-a" style="color:#92400e;font-style:italic">⏭ ПРОПУЩЕНО — вопрос неподходящий</div>'; }
+        }
+        if (d.complete) {
+          var box = document.getElementById('journalistQA');
+          box.insertAdjacentHTML('beforeend', '<div style="padding:var(--space-3);background:#dcfce7;border-radius:var(--radius-sm);font-size:14px;margin-top:var(--space-3)">✓ Журналист закончил. ' + (d.summary ? esc(d.summary) : '') + '</div>');
+          document.getElementById('journalistInputRow').style.display = 'none';
+          document.getElementById('journalistStatus').textContent = 'готово · ' + (d.qa_count || '?') + ' Q&A';
+          setTimeout(autoRewriteAfterJournalist, 1500);
+        } else if (d.question) {
+          var box = document.getElementById('journalistQA');
+          box.insertAdjacentHTML('beforeend', '<div class="qa-row"><div class="qa-q">' + esc(d.question) + '</div><div class="qa-a pending">Ждёт твой ответ ниже…</div></div>');
+          document.getElementById('journalistStatus').textContent = 'вопрос ' + (d.qa_count || '?') + ' из 5';
+          document.getElementById('journalistAnswer').focus();
+        }
+        if (btn) { btn.disabled = false; btn.textContent = '⏭ Пропустить вопрос'; }
+      })
+      .catch(function(e) {
+        toast('Сеть: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = '⏭ Пропустить вопрос'; }
+      });
+  }
+
+  function closeJournalistPanel() {
+    document.getElementById('journalistPanel').style.display = 'none';
+    JOURNALIST_SESSION_ID = null;
+    PENDING_APPLY_FIXES = null;
+  }
+
+  /* UC-124: Reconciler — проверить конфликты в рекомендациях */
+  function startReconcile() {
+    if (!CURRENT_CHAPTER) { toast('Сначала выбери главу'); return; }
+    var btn = document.getElementById('reconcileBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '✨ Согласую…'; }
+    toast('Reconciler проверяет конфликты и дубли (1-2 мин)…', 5000);
+    fetch('/api/editor/reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER, force: true })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.ok) {
+          toast('Reconciler: ' + (d.error || '?'), 6000);
+          if (btn) { btn.disabled = false; btn.textContent = '✨ Убрать конфликты'; }
+          return;
+        }
+        renderReconciledPanel(d);
+        if (btn) { btn.disabled = false; btn.textContent = '✨ Согласовано (' + (d.reconciled || []).length + ')'; }
+      })
+      .catch(function(e) {
+        toast('Сеть: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = '✨ Убрать конфликты'; }
+      });
+  }
+
+  function renderReconciledPanel(data) {
+    /* Вставляем reconciled-секцию в начало fixes — перед всеми другими */
+    var fixes = document.getElementById('analysisFixes');
+    if (!fixes) return;
+    var items = (data.reconciled || []).map(function(it) {
+      var src = it.source || '';
+      var tier = it.priority_tier || 8;
+      var tierBadge = '<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-right:4px;background:' + tierColor(tier) + ';color:white">tier ' + tier + '</span>';
+      var voiceCls = (tier === 1) ? ' fix-item-voice' : (tier === 2 ? ' fix-item-chief-elder' : '');
+      var paraIdx = it.para_idx;
+      var idx = window._reconciledIdxCounter = (window._reconciledIdxCounter || 0) + 1;
+      var rationale = it.rationale ? ('<div class="fix-item-meta">' + esc(it.rationale).slice(0, 200) + '</div>') : '';
+      return '<label class="fix-item' + voiceCls + '">'
+           + '<input type="checkbox" data-critic="reconciled_' + esc(src) + '" data-fix-idx="' + idx + '" data-para-idx="' + (paraIdx != null ? paraIdx : '') + '" checked>'
+           + '<div class="fix-item-body">'
+           + '<div class="fix-item-text">' + tierBadge + esc(it.text) + '</div>'
+           + '<div class="fix-item-meta">' + esc(src) + (paraIdx != null ? ' · параграф ' + (paraIdx + 1) : '') + '</div>'
+           + rationale
+           + '</div></label>';
+    }).join('');
+    var resolved = (data.conflicts_resolved || []).length;
+    var dups = (data.removed_duplicates || []).length;
+    var header = '<div class="fix-group open" style="border:2px solid #16a34a">'
+               + '<div class="fix-group-head" style="background:#dcfce7">'
+               + '<span class="fix-group-name">✨ СОГЛАСОВАННЫЕ — приоритет voice/journalist первым</span>'
+               + '<span class="fix-group-meta">' + (data.reconciled || []).length + ' пунктов · ' + dups + ' дублей убрано · ' + resolved + ' конфликтов решено</span>'
+               + '</div>'
+               + '<div class="fix-group-body">'
+               + (data.summary ? '<div style="padding:var(--space-3);font-size:13px;color:var(--color-text-muted);background:#f0fdf4">' + esc(data.summary).slice(0, 400) + '</div>' : '')
+               + items
+               + '</div></div>';
+    /* Удаляем предыдущую reconciled секцию если есть и вставляем новую в начало */
+    var prev = fixes.querySelector('.reconciled-section');
+    if (prev) prev.remove();
+    var wrap = document.createElement('div');
+    wrap.className = 'reconciled-section';
+    wrap.innerHTML = header;
+    fixes.insertBefore(wrap, fixes.firstChild);
+    /* Снимаем галочки со всех остальных fixes — Pavel работает только с reconciled */
+    document.querySelectorAll('#analysisFixes .fix-group:not(.reconciled-section .fix-group) input[type=checkbox]:checked').forEach(function(cb) {
+      cb.checked = false;
+    });
+    updateApplyCount();
+    document.getElementById('analysisHint').textContent = 'Согласовано: ' + (data.reconciled || []).length + ' пунктов, остальные сняты. Жми «Применить отмеченное».';
+  }
+
+  function tierColor(t) {
+    if (t === 1) return '#dc2626'; /* voice — красный приоритет */
+    if (t === 2) return '#7c3aed'; /* journalist */
+    if (t === 3) return '#2563eb'; /* synthesis */
+    if (t === 4) return '#0891b2'; /* elders */
+    if (t === 5) return '#0d9488'; /* technical */
+    if (t === 6) return '#65a30d'; /* params */
+    return '#6b7280';
+  }
+
+  /* UC-125: Анализ последовательности параграфов — последний инструмент */
+  function startSequenceAnalysis() {
+    if (!CURRENT_CHAPTER) { toast('Сначала выбери главу'); return; }
+    var btn = document.getElementById('sequenceBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '🔢 Анализирую…'; }
+    toast('Sequence-analyzer изучает порядок параграфов (1-3 мин)…', 5000);
+    fetch('/api/editor/sequence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER, force: true })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.ok) {
+          toast('Sequence: ' + (d.error || '?'), 6000);
+          if (btn) { btn.disabled = false; btn.textContent = '🔢 Последовательность'; }
+          return;
+        }
+        renderSequencePanel(d);
+        if (btn) { btn.disabled = false; btn.textContent = '🔢 Последовательность (' + (d.score || '?') + '/100)'; }
+      })
+      .catch(function(e) {
+        toast('Сеть: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = '🔢 Последовательность'; }
+      });
+  }
+
+  function renderSequencePanel(data) {
+    var fixes = document.getElementById('analysisFixes');
+    if (!fixes) return;
+    var inner = '';
+    /* Score + summary */
+    var score = data.score != null ? data.score : '?';
+    inner += '<div style="padding:var(--space-3);font-size:14px;background:#f0f9ff;border-left:3px solid #0284c7;border-radius:var(--radius-sm);margin-bottom:var(--space-3)">'
+           + '<b>Score последовательности: ' + score + '/100</b>'
+           + (data.summary ? '<div style="margin-top:var(--space-2);color:var(--color-text-muted)">' + esc(data.summary).slice(0, 500) + '</div>' : '')
+           + '</div>';
+    /* Arcs */
+    if (data.current_arc || data.ideal_arc) {
+      inner += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin-bottom:var(--space-3)">';
+      if (data.current_arc) {
+        inner += '<div style="padding:var(--space-3);background:#fef9c3;border-radius:var(--radius-sm)"><b>📈 Сейчас:</b>';
+        ['opening','development','peak','closing'].forEach(function(k) {
+          if (data.current_arc[k]) inner += '<div style="margin-top:4px;font-size:12px"><b>' + k + ':</b> ' + esc(data.current_arc[k]).slice(0, 150) + '</div>';
+        });
+        inner += '</div>';
+      }
+      if (data.ideal_arc) {
+        inner += '<div style="padding:var(--space-3);background:#dcfce7;border-radius:var(--radius-sm)"><b>🎯 Идеал:</b>';
+        ['opening','development','peak','closing'].forEach(function(k) {
+          if (data.ideal_arc[k]) inner += '<div style="margin-top:4px;font-size:12px"><b>' + k + ':</b> ' + esc(data.ideal_arc[k]).slice(0, 150) + '</div>';
+        });
+        inner += '</div>';
+      }
+      inner += '</div>';
+    }
+    /* Actions */
+    function renderAction(arr, icon, label, fn) {
+      if (!arr || !arr.length) return '';
+      var items = arr.map(function(it) { return '<div style="padding:var(--space-2) var(--space-3);margin:2px 0;background:var(--color-bg-app);border-radius:var(--radius-sm);font-size:13px">' + fn(it) + '</div>'; }).join('');
+      return '<div style="margin-bottom:var(--space-3)"><div style="font-weight:600;font-size:13px;margin-bottom:var(--space-2)">' + icon + ' ' + label + ' (' + arr.length + ')</div>' + items + '</div>';
+    }
+    inner += renderAction(data.reorder, '↕️', 'Переставить', function(r) { return 'Параграф <b>' + r.from + '</b> → позиция <b>' + r.to + '</b>: ' + esc(r.rationale || ''); });
+    inner += renderAction(data.merge, '⊕', 'Склеить', function(r) { return 'Параграфы <b>' + (r.paragraphs || []).join(', ') + '</b>: ' + esc(r.rationale || ''); });
+    inner += renderAction(data.split, '⊘', 'Разбить', function(r) { return 'Параграф <b>' + r.paragraph + '</b> ' + (r.where ? ('после «' + esc(r.where) + '»') : '') + ': ' + esc(r.rationale || ''); });
+    inner += renderAction(data.delete, '✗', 'Удалить', function(r) { return 'Параграф <b>' + r.paragraph + '</b>: ' + esc(r.rationale || ''); });
+    /* Ideal sequence */
+    if (data.ideal_sequence && data.ideal_sequence.length) {
+      inner += '<div style="margin-top:var(--space-3);padding:var(--space-3);background:#ecfdf5;border-radius:var(--radius-sm)"><b>🔢 Идеальная последовательность:</b><div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;margin-top:var(--space-2);word-break:break-all">' + data.ideal_sequence.join(' → ') + '</div></div>';
+    }
+    /* Apply button */
+    inner += '<div style="text-align:center;margin-top:var(--space-3)"><button class="btn btn-primary btn-sm" id="applySequenceBtn">Применить последовательность (через Opus)</button> <span style="color:var(--color-text-muted);font-size:11px;margin-left:var(--space-2)">Pavel: проверь визуально перед применением</span></div>';
+    var prev = fixes.querySelector('.sequence-section');
+    if (prev) prev.remove();
+    var wrap = document.createElement('div');
+    wrap.className = 'sequence-section';
+    wrap.innerHTML = '<div class="fix-group open" style="border:2px solid #0284c7"><div class="fix-group-head" style="background:#dbeafe"><span class="fix-group-name">🔢 ПОСЛЕДОВАТЕЛЬНОСТЬ ПАРАГРАФОВ — финальный шлиф</span><span class="fix-group-meta">score ' + score + '/100</span></div><div class="fix-group-body">' + inner + '</div></div>';
+    fixes.appendChild(wrap);
+    var ab = document.getElementById('applySequenceBtn');
+    if (ab) ab.addEventListener('click', function() {
+      if (!window.confirm('Применить переупорядочение через Opus? Текущий порядок сохранится в .history/')) return;
+      /* Отправляем как special selection с source=sequence */
+      var selections = [];
+      (data.reorder || []).forEach(function(r) { selections.push({ source: 'sequence_reorder', id: 'reorder-' + r.from + '-' + r.to, text: 'Переставить параграф ' + r.from + ' → позиция ' + r.to + ': ' + (r.rationale || '') }); });
+      (data.merge || []).forEach(function(r) { selections.push({ source: 'sequence_merge', id: 'merge-' + (r.paragraphs || []).join('-'), text: 'Склеить параграфы ' + (r.paragraphs || []).join(', ') + ': ' + (r.rationale || '') }); });
+      (data.split || []).forEach(function(r) { selections.push({ source: 'sequence_split', id: 'split-' + r.paragraph, text: 'Разбить параграф ' + r.paragraph + ' после «' + (r.where || '') + '»: ' + (r.rationale || '') }); });
+      (data.delete || []).forEach(function(r) { selections.push({ source: 'sequence_delete', id: 'delete-' + r.paragraph, text: 'Удалить параграф ' + r.paragraph + ': ' + (r.rationale || '') }); });
+      doApplyTargeted(selections.map(function(s) { return { critic: s.source, para_idx: null, text: s.text, meta: '' }; }), null);
+    });
+  }
+
+  /* UC-127: автоматический рерайт после завершения Журналиста */
+  function autoRewriteAfterJournalist() {
+    var fixes = PENDING_APPLY_FIXES || [];
+    if (!fixes.length && RECONCILED_CACHE) {
+      /* fallback: возьмём топ-5 из reconciled */
+      fixes = (RECONCILED_CACHE.reconciled || []).slice(0, 5).map(function(it) {
+        return { critic: it.source || 'reconciled', text: it.text, meta: it.rationale || '', para_idx: it.para_idx };
+      });
+    }
+    if (!fixes.length) {
+      var status = document.getElementById('autoRewriteStatus');
+      if (status) status.innerHTML = '<div style="color:#b45309">Нет фиксов для применения. Закройте панель и выберите галочками вручную.</div>';
+      return;
+    }
+    /* Закрываем Журналист панель и показываем общий прогресс */
+    document.getElementById('journalistPanel').style.display = 'none';
+    doApplyTargeted(fixes, JOURNALIST_SESSION_ID, function(success) {
+      if (success) {
+        /* UC-127: после успешного рерайта — запускаем новую итерацию анализа */
+        setTimeout(startIterationAnalysis, 2500);
+      }
+    });
+  }
+
+  function startIterationAnalysis() {
+    progressStart('🔄 Новая итерация: критики измеряют насколько глава приблизилась к шедевру', 540); /* 9 min ETA */
+    progressLog('Запускаю 15 критиков в фоне…');
+    /* Прогоняем критиков заново на свежей версии */
+    fetch('/api/critics/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          progressLog('Критики запущены (PID ' + (d.pid || '?') + ')');
+          progressLog('Через 5-10 мин окно обновится автоматически');
+          if (ANALYSIS_POLL_TIMER) clearInterval(ANALYSIS_POLL_TIMER);
+          ANALYSIS_POLL_TIMER = setInterval(function() {
+            loadLatestAnalysis();
+            checkMasterpieceStatus();
+          }, 90000);
+        } else {
+          progressError(d.error || 'не удалось запустить critics');
+        }
+      })
+      .catch(function(e) {
+        progressError('Сеть: ' + e.message);
+      });
+  }
+
+  function checkMasterpieceStatus() {
+    if (!ANALYSIS_DATA) return;
+    var synth = (ANALYSIS_DATA.critics && ANALYSIS_DATA.critics.results && ANALYSIS_DATA.critics.results.synthesis && ANALYSIS_DATA.critics.results.synthesis.result) || {};
+    var score = synth.final_score;
+    if (typeof score === 'number') {
+      progressLog('Новый score: ' + score + '/100');
+      if (score >= 95) {
+        progressDone('🏆 Шедевр! Score ' + score + '/100. Глава готова.');
+        toast('🏆 Шедевр достигнут! Score ' + score + '/100', 10000);
+        if (ANALYSIS_POLL_TIMER) clearInterval(ANALYSIS_POLL_TIMER);
+      } else if (score >= 80) {
+        progressDone('✅ Проход! Score ' + score + '/100. Можно ещё итерацию для шедевра');
+        toast('✅ Проход! Score ' + score + '/100. Можешь ещё итерацию.', 6000);
+        if (ANALYSIS_POLL_TIMER) clearInterval(ANALYSIS_POLL_TIMER);
+      } else if (score >= 60) {
+        progressLog('Score ' + score + ' — нужна ещё итерация для прохода');
+      }
+    }
+  }
+
+  /* UC-122: "Что нужно чтобы достичь 100%" — запускает Журналиста с целью шедевра */
+  function startToMasterpiece() {
+    if (!CURRENT_CHAPTER) { toast('Сначала выбери главу'); return; }
+    PENDING_APPLY_FIXES = []; /* пустой массив — Журналист сам сформирует контекст из текущего analysis */
+    var panel = document.getElementById('journalistPanel');
+    panel.style.display = 'block';
+    document.getElementById('journalistStatus').textContent = 'Журналист думает как довести до 100%…';
+    document.getElementById('journalistQA').innerHTML = '<div style="color:var(--color-text-muted);padding:var(--space-3)">Журналист изучает анализ главы и формулирует, что не хватает до шедевра…</div>';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    /* Передаём все pressure_points + top_4 elder как fixes для контекста */
+    var fixes = [];
+    if (ANALYSIS_DATA) {
+      var synth = (ANALYSIS_DATA.critics && ANALYSIS_DATA.critics.results && ANALYSIS_DATA.critics.results.synthesis && ANALYSIS_DATA.critics.results.synthesis.result) || {};
+      (synth.pressure_points || []).forEach(function(pp) {
+        fixes.push({ critic: 'synthesis_pressure', text: pp.fix || pp.issue || '', meta: 'параграф ' + ((pp.para_idx || 0) + 1), para_idx: pp.para_idx });
+      });
+      (synth.top_5_priority_edits || []).forEach(function(t) {
+        fixes.push({ critic: 'synthesis_top5', text: t, meta: 'приоритет' });
+      });
+      (ANALYSIS_DATA.chief_elder_top4 || []).forEach(function(it) {
+        fixes.push({ critic: 'chief_elder_' + it.critic, text: it.text, meta: it.elder + ' · ' + it.kind });
+      });
+      (ANALYSIS_DATA.voice_missing_ideas || []).forEach(function(m) {
+        var t = (typeof m === 'string') ? m : (m.idea || m.text || '');
+        if (t) fixes.push({ critic: 'voice_missing', text: '🎙️ ВЕРНУТЬ: ' + t, meta: 'голосовая' });
+      });
+    }
+    fetch('/api/editor/journalist/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER, fixes: fixes })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.ok) {
+          toast('Журналист: ' + (d.error || '?'), 6000);
+          return;
+        }
+        JOURNALIST_SESSION_ID = d.session_id;
+        PENDING_APPLY_FIXES = fixes;
+        var box = document.getElementById('journalistQA');
+        box.innerHTML = '<div class="qa-row"><div class="qa-q">' + esc(d.question) + '</div><div class="qa-a pending">Ждёт твой ответ ниже…</div></div>';
+        document.getElementById('journalistStatus').textContent = 'к шедевру · вопрос 1 из 5';
+        document.getElementById('journalistInputRow').style.display = '';
+      });
+  }
+
+  function proceedApplyAfterJournalist() {
+    if (!PENDING_APPLY_FIXES) {
+      toast('Нет отмеченных правок');
+      return;
+    }
+    doApplyTargeted(PENDING_APPLY_FIXES, JOURNALIST_SESSION_ID);
+    document.getElementById('journalistPanel').style.display = 'none';
+  }
+
+  function applyCheckedFixes() {
+    /* UC-119: Pavel жмёт «Применить отмеченное» БЕЗ Журналиста (старое поведение) */
+    var fixes = collectCheckedFixes();
+    if (fixes.length === 0) {
+      toast('Сначала отметь правки галочками');
+      return;
+    }
+    if (!window.confirm('Применить ' + fixes.length + ' отмеченных правок через Opus 4.7? (3-7 мин). Без Журналиста — если хочешь сначала с вопросами, нажми «💬 Журналист спросит».')) return;
+    doApplyTargeted(fixes, null);
+  }
+
+  function doApplyTargeted(fixes, journalistSessionId, callback) {
+    var ctxMsg = journalistSessionId ? ' с твоими ответами Журналисту' : '';
+    progressStart('Применяю ' + fixes.length + ' правок' + ctxMsg, 270); /* 3-5 мин ETA */
+    progressLog('Отправляю в Opus 4.7…');
+    var btn = document.getElementById('applyCheckedBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Применяю…'; }
+    var selections = fixes.map(function(f, i) {
+      return {
+        source: f.critic || 'editor',
+        id: 'fix-' + i,
+        text: f.text,
+        category: f.meta || '',
+        paragraph_idx: f.para_idx,
+      };
+    });
+    var body = { selections: selections };
+    if (journalistSessionId) body.editor_journalist_session_id = journalistSessionId;
+    fetch('/api/chapter/' + encodeURIComponent(CURRENT_CHAPTER) + '/apply-targeted', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          var p = d.event && d.event.payload || {};
+          progressLog('Изменено параграфов: ' + (p.changed_paras != null ? p.changed_paras : '?'));
+          progressLog('Размер: ' + (p.old_chars || '?') + ' → ' + (p.new_chars || '?') + ' символов');
+          progressDone('Глава переписана! Перезагружаю текст…');
+          toast('✓ Глава обновлена', 3000);
+          setTimeout(function() { loadChapter(CURRENT_CHAPTER); if (callback) callback(true); }, 1500);
+        } else {
+          progressError(d.error || 'неизвестная ошибка');
+          toast('Ошибка: ' + (d.error || '?'), 6000);
+          if (callback) callback(false);
+        }
+        if (btn) { btn.disabled = false; btn.textContent = 'Применить отмеченное'; updateApplyCount(); }
+      })
+      .catch(function(e) {
+        progressError('Сеть: ' + e.message);
+        toast('Сеть: ' + e.message, 6000);
+        if (callback) callback(false);
+        if (btn) { btn.disabled = false; btn.textContent = 'Применить отмеченное'; }
+      });
+  }
+
+  function rewriteAllChapter() {
+    if (!CURRENT_CHAPTER) return;
+    if (!window.confirm('Переписать ВСЮ главу через Opus 4.7 с учётом анализа? 5-10 минут.')) return;
+    progressStart('Переписываю ВСЮ главу (полный rewrite через Opus 4.7)', 480); /* 8 min ETA */
+    progressLog('Загружаю все analyses в Opus prompt…');
+    progressLog('Это полный rewrite — займёт 5-10 минут');
+    fetch('/api/chapter/super-rewrite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter_id: CURRENT_CHAPTER })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          var p = d.event && d.event.payload || {};
+          progressLog('Размер: ' + (p.old_chars || '?') + ' → ' + (p.new_chars || '?'));
+          progressDone('Глава полностью переписана!');
+          toast('✓ Готово. Перезагружаю главу.', 3000);
+          setTimeout(function() { loadChapter(CURRENT_CHAPTER); }, 1500);
+        } else {
+          progressError(d.error || '?');
+          toast('Ошибка: ' + (d.error || '?'), 6000);
+        }
+      })
+      .catch(function(e) { toast('Сеть: ' + e.message, 6000); });
+  }
+
+  document.addEventListener('change', function(e) {
+    if (e.target && e.target.matches('#analysisFixes input[type=checkbox]')) {
+      updateApplyCount();
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var sb = document.getElementById('saveBtn');
+    if (sb) sb.addEventListener('click', function() { doSave('force'); });
+    var fb = document.getElementById('finalizeBtn');
+    if (fb) fb.addEventListener('click', doFinalize);
+    var ub = document.getElementById('undoBtn');
+    if (ub) ub.addEventListener('click', doUndo);
+    var rb = document.getElementById('redoBtn');
+    if (rb) rb.addEventListener('click', doRedo);
+    var ab = document.getElementById('analyzeBtn');
+    if (ab) ab.addEventListener('click', openAnalysisPanel);
+    var arb = document.getElementById('analysisRunBtn');
+    if (arb) arb.addEventListener('click', startAnalysis);
+    /* Фаза 3: Мастер-аудит */
+    var mab = document.getElementById('masterAuditBtn');
+    if (mab) mab.addEventListener('click', startMasterAudit);
+    var prb = document.getElementById('personasRunBtn');
+    if (prb) prb.addEventListener('click', startPersonas);
+    /* UC-119: editor-журналист хендлеры */
+    var jbtn = document.getElementById('journalistBeforeApplyBtn');
+    if (jbtn) jbtn.addEventListener('click', startJournalistBeforeApply);
+    var jab = document.getElementById('journalistAnswerBtn');
+    if (jab) jab.addEventListener('click', submitJournalistAnswer);
+    var jsk = document.getElementById('journalistSkipBtn');
+    if (jsk) jsk.addEventListener('click', skipJournalist);
+    var jsq = document.getElementById('journalistSkipQBtn');
+    if (jsq) jsq.addEventListener('click', skipJournalistQuestion);
+    var jcl = document.getElementById('journalistCloseBtn');
+    if (jcl) jcl.addEventListener('click', closeJournalistPanel);
+    var tmb = document.getElementById('toMasterpieceBtn');
+    if (tmb) tmb.addEventListener('click', startToMasterpiece);
+    var rcb = document.getElementById('reconcileBtn');
+    if (rcb) rcb.addEventListener('click', startReconcile);
+    var sqb = document.getElementById('sequenceBtn');
+    if (sqb) sqb.addEventListener('click', startSequenceAnalysis);
+    var acb = document.getElementById('analysisCloseBtn');
+    if (acb) acb.addEventListener('click', closeAnalysisPanel);
+    var apply = document.getElementById('applyCheckedBtn');
+    if (apply) apply.addEventListener('click', applyCheckedFixes);
+    var rew = document.getElementById('rewriteAllBtn');
+    if (rew) rew.addEventListener('click', rewriteAllChapter);
+    /* UC-114: toggle breakdown panel */
+    var bb = document.getElementById('chBreakdownBtn');
+    if (bb) bb.addEventListener('click', function() {
+      var p = document.getElementById('chBreakdownPanel');
+      if (!p) return;
+      p.style.display = p.style.display === 'none' ? 'block' : 'none';
+    });
+    loadToc();
+  });
+</script>
+</body>
+</html>

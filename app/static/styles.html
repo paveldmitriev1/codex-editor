@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>Стили · Codex v2</title>
+<link rel="preconnect" href="https://rsms.me/">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body { background: var(--color-bg-app); }
+  .layout { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); min-height: 100vh; }
+  .main { padding: var(--space-6) var(--space-8) var(--space-12); max-width: 980px; margin: 0 auto; width: 100%; min-width: 0; }
+  .lead { color: var(--color-text-muted); line-height: 1.6; margin: 0 0 var(--space-5); max-width: 720px; }
+  .section { background: var(--color-card); border: 1px solid var(--color-card-border); border-radius: var(--radius-md); padding: var(--space-5); margin-bottom: var(--space-5); }
+  .section h2 { margin: 0 0 var(--space-3); font-size: 18px; }
+  .rule-row, .example-row { display: flex; gap: var(--space-3); margin-bottom: var(--space-2); align-items: flex-start; }
+  .rule-row textarea, .example-row textarea { flex: 1; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; resize: vertical; min-height: 38px; background: var(--color-bg-app); }
+  .example-row input.title { flex: 0 0 200px; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-family: inherit; font-size: 14px; }
+  .rule-row .del, .example-row .del { background: transparent; border: 1px solid var(--color-border); color: var(--color-text-muted); border-radius: var(--radius-sm); width: 32px; height: 32px; cursor: pointer; font-size: 14px; flex-shrink: 0; }
+  .rule-row .del:hover, .example-row .del:hover { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+  .actions-bar { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+  .save-status { font-size: 12px; color: var(--color-text-muted); padding: var(--space-1) var(--space-2); }
+  .save-status.saved { color: #15803d; }
+  .save-status.dirty { color: #b45309; }
+  .info-box { padding: var(--space-3) var(--space-4); background: #eef2ff; border-left: 3px solid #6366F1; border-radius: var(--radius-sm); font-size: 13px; color: var(--color-text); margin-bottom: var(--space-4); }
+  .preview-box { padding: var(--space-3); background: var(--color-bg-app); border: 1px dashed var(--color-card-border); border-radius: var(--radius-sm); font-size: 13px; color: var(--color-text-muted); white-space: pre-wrap; max-height: 200px; overflow-y: auto; font-family: ui-monospace, Menlo, monospace; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar" id="appSidebar" data-page="styles"></aside>
+  <script src="/static/nav.js"></script>
+  <main class="main">
+    <header class="page-head">
+      <div>
+        <h1>Стили</h1>
+        <p class="page-sub">Правила и примеры стиля Pavel-а Хилингода. Редактор учитывает их при каждом переписывании.</p>
+      </div>
+    </header>
+
+    <p class="lead">
+      Здесь ты вручную задаёшь стилевые правила (что МОЖНО, что НЕЛЬЗЯ) и эталонные примеры.
+      Редактор инжектирует эти правила в Opus 4.7 при каждом «Применить отмеченное» или «Переписать всю главу».
+      Это место для микро-тюнинга стиля помимо встроенного канона.
+    </p>
+
+    <div class="info-box">
+      📝 Каноничные правила (UC-76: без тире, UC-11: без контраст-пар, UC-43: canon-filter и т.д.) уже встроены в систему.
+      Здесь — твои дополнительные правила: лексика которой избегать, обороты которые любишь, частотные ошибки Opus-а.
+    </div>
+
+    <section class="section">
+      <h2>Правила стиля</h2>
+      <p style="margin: 0 0 var(--space-3); font-size: 13px; color: var(--color-text-muted);">
+        Короткие императивы. Что делать или НЕ делать. Каждое правило отдельной строкой.
+      </p>
+      <div id="rulesList"></div>
+      <div class="actions-bar">
+        <button class="btn btn-secondary btn-sm" id="addRuleBtn">+ Добавить правило</button>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Эталонные примеры</h2>
+      <p style="margin: 0 0 var(--space-3); font-size: 13px; color: var(--color-text-muted);">
+        Образцы голоса. Когда говоришь «вот так писать» — приведи параграф из своего текста.
+      </p>
+      <div id="examplesList"></div>
+      <div class="actions-bar">
+        <button class="btn btn-secondary btn-sm" id="addExampleBtn">+ Добавить пример</button>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Как Opus это увидит</h2>
+      <p style="margin: 0 0 var(--space-3); font-size: 13px; color: var(--color-text-muted);">
+        Так твои правила и примеры будут добавлены в system-prompt при рерайте.
+      </p>
+      <div class="preview-box" id="previewBox">…</div>
+    </section>
+
+    <div style="position: sticky; bottom: 20px; display: flex; justify-content: flex-end; padding: var(--space-4); background: rgba(255,255,255,0.92); backdrop-filter: blur(8px); border-radius: var(--radius-md); margin-top: var(--space-5); gap: var(--space-3); align-items: center;">
+      <span class="save-status" id="saveStatus">загружаю</span>
+      <button class="btn btn-primary" id="saveBtn">Сохранить</button>
+    </div>
+  </main>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+var STATE = { rules: [], examples: [] };
+var DIRTY = false;
+
+function esc(s) { return s == null ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function toast(msg, ms) {
+  ms = ms || 3000;
+  var c = document.getElementById('toastContainer');
+  if (!c) { alert(msg); return; }
+  var el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  c.appendChild(el);
+  setTimeout(function(){ el.remove(); }, ms);
+}
+
+function setDirty(d) {
+  DIRTY = !!d;
+  var s = document.getElementById('saveStatus');
+  if (s) {
+    if (DIRTY) { s.className = 'save-status dirty'; s.textContent = 'не сохранено'; }
+    else { s.className = 'save-status saved'; s.textContent = 'сохранено'; }
+  }
+}
+
+function renderRules() {
+  var box = document.getElementById('rulesList');
+  if (!STATE.rules.length) {
+    box.innerHTML = '<div style="color:var(--color-text-muted);font-size:13px;padding:var(--space-3) 0">Пока правил нет. Добавь первое.</div>';
+    return;
+  }
+  box.innerHTML = STATE.rules.map(function(r, i) {
+    var text = (typeof r === 'string') ? r : (r.rule || r.text || '');
+    return '<div class="rule-row" data-idx="' + i + '">'
+         + '<textarea oninput="onRuleChange(' + i + ', this.value)" placeholder="Например: «Никогда не использовать AI-клише &quot;это важно отметить&quot;»">' + esc(text) + '</textarea>'
+         + '<button class="del" onclick="removeRule(' + i + ')" title="Удалить">×</button>'
+         + '</div>';
+  }).join('');
+}
+
+function renderExamples() {
+  var box = document.getElementById('examplesList');
+  if (!STATE.examples.length) {
+    box.innerHTML = '<div style="color:var(--color-text-muted);font-size:13px;padding:var(--space-3) 0">Пока примеров нет. Добавь первый.</div>';
+    return;
+  }
+  box.innerHTML = STATE.examples.map(function(e, i) {
+    var title = (typeof e === 'string') ? '' : (e.title || '');
+    var text = (typeof e === 'string') ? e : (e.text || '');
+    return '<div class="example-row" data-idx="' + i + '">'
+         + '<input class="title" oninput="onExampleTitleChange(' + i + ', this.value)" placeholder="Название" value="' + esc(title) + '">'
+         + '<textarea oninput="onExampleTextChange(' + i + ', this.value)" placeholder="Параграф-эталон">' + esc(text) + '</textarea>'
+         + '<button class="del" onclick="removeExample(' + i + ')" title="Удалить">×</button>'
+         + '</div>';
+  }).join('');
+}
+
+function onRuleChange(i, val) {
+  STATE.rules[i] = val;
+  setDirty(true);
+  renderPreview();
+}
+function removeRule(i) {
+  STATE.rules.splice(i, 1);
+  setDirty(true);
+  renderRules();
+  renderPreview();
+}
+function addRule() {
+  STATE.rules.push('');
+  setDirty(true);
+  renderRules();
+  renderPreview();
+}
+
+function onExampleTitleChange(i, val) {
+  if (typeof STATE.examples[i] === 'string') STATE.examples[i] = { title: '', text: STATE.examples[i] };
+  STATE.examples[i].title = val;
+  setDirty(true);
+  renderPreview();
+}
+function onExampleTextChange(i, val) {
+  if (typeof STATE.examples[i] === 'string') STATE.examples[i] = { title: '', text: '' };
+  STATE.examples[i].text = val;
+  setDirty(true);
+  renderPreview();
+}
+function removeExample(i) {
+  STATE.examples.splice(i, 1);
+  setDirty(true);
+  renderExamples();
+  renderPreview();
+}
+function addExample() {
+  STATE.examples.push({ title: '', text: '' });
+  setDirty(true);
+  renderExamples();
+  renderPreview();
+}
+
+function renderPreview() {
+  var lines = [];
+  var rules = STATE.rules.filter(function(r) { return (typeof r === 'string' ? r : (r.rule || r.text || '')).trim(); });
+  var examples = STATE.examples.filter(function(e) { return (typeof e === 'string' ? e : (e.text || '')).trim(); });
+  if (rules.length) {
+    lines.push('## ПРАВИЛА:');
+    rules.forEach(function(r) {
+      var text = typeof r === 'string' ? r : (r.rule || r.text || '');
+      lines.push('- ' + text);
+    });
+  }
+  if (examples.length) {
+    if (lines.length) lines.push('');
+    lines.push('## ПРИМЕРЫ:');
+    examples.forEach(function(e) {
+      var title = typeof e === 'string' ? 'без названия' : (e.title || 'без названия');
+      var text = typeof e === 'string' ? e : (e.text || '');
+      lines.push('### ' + title);
+      lines.push(text.slice(0, 600));
+    });
+  }
+  document.getElementById('previewBox').textContent = lines.join('\n') || '(пусто — Opus получит только базовый канон)';
+}
+
+function load() {
+  fetch('/api/styles').then(function(r){ return r.json(); }).then(function(d){
+    STATE.rules = d.rules || [];
+    STATE.examples = d.examples || [];
+    renderRules();
+    renderExamples();
+    renderPreview();
+    setDirty(false);
+  }).catch(function(e){
+    toast('Не удалось загрузить: ' + e.message, 5000);
+  });
+}
+
+function save() {
+  /* Нормализуем правила в строки */
+  var rules = STATE.rules.map(function(r) {
+    var text = typeof r === 'string' ? r : (r.rule || r.text || '');
+    return (text || '').trim();
+  }).filter(Boolean);
+  var examples = STATE.examples.map(function(e) {
+    if (typeof e === 'string') return { title: '', text: e.trim() };
+    return { title: (e.title || '').trim(), text: (e.text || '').trim() };
+  }).filter(function(e) { return e.text; });
+  var btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Сохраняю…';
+  fetch('/api/styles/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rules: rules, examples: examples })
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (d.ok) {
+      toast('Сохранено: ' + d.rules_count + ' правил, ' + d.examples_count + ' примеров', 3000);
+      STATE.rules = rules;
+      STATE.examples = examples;
+      setDirty(false);
+    } else {
+      toast('Ошибка: ' + (d.error || '?'), 5000);
+    }
+    btn.disabled = false;
+    btn.textContent = 'Сохранить';
+  }).catch(function(e){
+    toast('Сеть: ' + e.message, 5000);
+    btn.disabled = false;
+    btn.textContent = 'Сохранить';
+  });
+}
+
+document.getElementById('addRuleBtn').addEventListener('click', addRule);
+document.getElementById('addExampleBtn').addEventListener('click', addExample);
+document.getElementById('saveBtn').addEventListener('click', save);
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "codex2",
+      "runtimeExecutable": "/usr/bin/python3",
+      "runtimeArgs": ["app/server.py"],
+      "port": 7788
+    }
+  ]
+}

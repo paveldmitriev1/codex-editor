@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>Библиотека примеров · Codex v2</title>
+<link rel="preconnect" href="https://rsms.me/">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  body { background: var(--color-bg-app); }
+  .layout { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); min-height: 100vh; }
+  .main { padding: var(--space-6) var(--space-8) var(--space-12); max-width: 980px; margin: 0 auto; width: 100%; min-width: 0; }
+  .lead { color: var(--color-text-muted); line-height: 1.6; margin: 0 0 var(--space-5); max-width: 720px; }
+
+  .upload-zone {
+    border: 2px dashed #c7c7c7;
+    border-radius: var(--radius-md);
+    padding: var(--space-8);
+    text-align: center;
+    background: var(--color-card);
+    margin-bottom: var(--space-5);
+    transition: all 200ms;
+    cursor: pointer;
+  }
+  .upload-zone.drag-over { border-color: #6366F1; background: #f5f3ff; }
+  .upload-zone h3 { margin: 0 0 var(--space-2); font-size: 16px; }
+  .upload-zone p { color: var(--color-text-muted); font-size: 14px; margin: 0; }
+  .upload-zone input[type="file"] { display: none; }
+  .upload-zone .btn { margin-top: var(--space-3); }
+
+  .files-list { display: flex; flex-direction: column; gap: var(--space-2); }
+  .file-card {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-card);
+    border: 1px solid var(--color-card-border);
+    border-radius: var(--radius-md);
+  }
+  .file-icon { width: 36px; height: 36px; border-radius: 6px; background: #eef2ff; color: #4338ca; display:flex; align-items:center; justify-content:center; font-weight: 700; font-size: 12px; flex-shrink: 0; }
+  .file-body { flex: 1; min-width: 0; }
+  .file-name { font-weight: 500; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-meta { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+  .file-actions { display: flex; gap: var(--space-2); align-items: center; }
+  .file-status { font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 500; }
+  .file-status.pending { background: #fef3c7; color: #92400e; }
+  .file-status.analyzed { background: #dcfce7; color: #166534; }
+  .file-status.error { background: #fee2e2; color: #991b1b; }
+  .empty-state { text-align: center; color: var(--color-text-muted); padding: var(--space-8); }
+
+  .actions-bar { display: flex; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; }
+
+  .analysis-preview {
+    margin-top: var(--space-2);
+    padding: var(--space-3);
+    background: var(--color-bg-app);
+    border-left: 3px solid #6366F1;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    display: none;
+  }
+  .file-card.expanded .analysis-preview { display: block; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar" id="appSidebar" data-page="library"></aside>
+  <script src="/static/nav.js"></script>
+  <main class="main">
+    <header class="page-head">
+      <div>
+        <h1>Библиотека примеров</h1>
+        <p class="page-sub">Книги-источники, из которых берутся стиль, лексика и идеи для новых глав</p>
+      </div>
+    </header>
+
+    <p class="lead">
+      Загрузи свои книги <strong>Манифест Грибов</strong>, <strong>Устав</strong>, и другие. Они становятся
+      эталоном стиля и источником идей для всех AI-вызовов: Журналист, Совет старейшин, Opus при написании.
+      Поддерживаются <code>.pdf</code>, <code>.docx</code>, <code>.md</code>, <code>.txt</code>. До 50 файлов, до 100 MB каждый.
+    </p>
+
+    <div class="upload-zone" id="uploadZone">
+      <h3>Перетащи файлы сюда</h3>
+      <p>или нажми кнопку чтобы выбрать</p>
+      <button class="btn btn-primary" id="pickBtn">Выбрать файлы</button>
+      <input type="file" id="fileInput" multiple accept=".pdf,.docx,.md,.txt">
+    </div>
+
+    <div class="actions-bar">
+      <button class="btn btn-secondary btn-sm" id="analyzeAllBtn">Анализировать все ожидающие</button>
+      <button class="btn btn-ghost btn-sm" id="importUstavBtn">Импортировать Устав из старой версии</button>
+    </div>
+
+    <div id="filesList" class="files-list">
+      <div class="empty-state">Загружаю список…</div>
+    </div>
+  </main>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function fmtSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024*1024) return Math.round(b/1024) + ' KB';
+  return (b/1024/1024).toFixed(1) + ' MB';
+}
+function fmtDate(iso) {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleString('ru-RU', {dateStyle:'short', timeStyle:'short'}); }
+  catch(e) { return iso; }
+}
+function toast(msg, ms) {
+  ms = ms || 3000;
+  var c = document.getElementById('toastContainer');
+  if (!c) { alert(msg); return; }
+  var el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  c.appendChild(el);
+  setTimeout(function(){ el.remove(); }, ms);
+}
+function fileIcon(name) {
+  var ext = (name.split('.').pop() || '').toUpperCase();
+  return ext.slice(0, 4);
+}
+
+function loadFiles() {
+  fetch('/api/library/files')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var list = document.getElementById('filesList');
+      var files = d.files || [];
+      if (!files.length) {
+        list.innerHTML = '<div class="empty-state">Библиотека пуста. Перетащи файлы выше или нажми «Выбрать файлы».</div>';
+        return;
+      }
+      list.innerHTML = files.map(function(f){
+        var statusCls = f.analyzed ? 'analyzed' : (f.error ? 'error' : 'pending');
+        var statusText = f.analyzed ? 'проанализирован' : (f.error ? 'ошибка' : 'ожидает');
+        return '<div class="file-card" data-id="' + esc(f.id) + '">' +
+               '<div class="file-icon">' + esc(fileIcon(f.name)) + '</div>' +
+               '<div class="file-body">' +
+               '<div class="file-name">' + esc(f.name) + '</div>' +
+               '<div class="file-meta">' + fmtSize(f.size || 0) + ' · ' + fmtDate(f.uploaded_at) + (f.analyzed_at ? ' · анализ ' + fmtDate(f.analyzed_at) : '') + '</div>' +
+               (f.summary ? '<div class="analysis-preview">' + esc(f.summary) + '</div>' : '') +
+               '</div>' +
+               '<div class="file-actions">' +
+               '<span class="file-status ' + statusCls + '">' + statusText + '</span>' +
+               (f.summary ? '<button class="btn btn-ghost btn-sm" data-act="toggle">Анализ</button>' : '') +
+               (!f.analyzed ? '<button class="btn btn-secondary btn-sm" data-act="analyze">Анализировать</button>' : '') +
+               '<button class="btn btn-ghost btn-sm" data-act="delete" title="Удалить">×</button>' +
+               '</div>' +
+               '</div>';
+      }).join('');
+    })
+    .catch(function(e){
+      document.getElementById('filesList').innerHTML = '<div class="empty-state">Ошибка: ' + esc(e.message) + '</div>';
+    });
+}
+
+function uploadFiles(fileList) {
+  var arr = Array.from(fileList);
+  if (!arr.length) return;
+  var ok = 0, fail = 0;
+  toast('Загружаю ' + arr.length + ' файлов…', 2000);
+  var pendingPromises = arr.map(function(file) {
+    var form = new FormData();
+    form.append('file', file);
+    return fetch('/api/library/upload', { method: 'POST', body: form })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d.ok) ok++; else { fail++; toast('Не загружено ' + file.name + ': ' + (d.error||'?'), 4000); } })
+      .catch(function(e){ fail++; toast('Сеть: ' + file.name, 4000); });
+  });
+  Promise.all(pendingPromises).then(function(){
+    toast('Загружено: ' + ok + (fail ? ' · ошибок: ' + fail : ''), 3000);
+    loadFiles();
+  });
+}
+
+function bindUpload() {
+  var zone = document.getElementById('uploadZone');
+  var input = document.getElementById('fileInput');
+  document.getElementById('pickBtn').addEventListener('click', function(e){ e.stopPropagation(); input.click(); });
+  zone.addEventListener('click', function(){ input.click(); });
+  input.addEventListener('change', function(){ uploadFiles(input.files); input.value = ''; });
+
+  zone.addEventListener('dragover', function(e){ e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', function(){ zone.classList.remove('drag-over'); });
+  zone.addEventListener('drop', function(e){
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    if (e.dataTransfer && e.dataTransfer.files) uploadFiles(e.dataTransfer.files);
+  });
+}
+
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest && e.target.closest('.file-card [data-act]');
+  if (!btn) return;
+  var card = btn.closest('.file-card');
+  var id = card.dataset.id;
+  var act = btn.dataset.act;
+  if (act === 'delete') {
+    if (!confirm('Удалить файл?')) return;
+    fetch('/api/library/delete', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({file_id: id}) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d.ok) { toast('Удалён'); loadFiles(); } else toast('Ошибка: '+(d.error||'?')); });
+  } else if (act === 'analyze') {
+    btn.disabled = true; btn.textContent = 'Запускаю…';
+    fetch('/api/library/analyze', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({file_id: id}) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.ok) { toast('Анализ запущен (Opus 4.7, 30-90 сек)', 4000); setTimeout(loadFiles, 5000); }
+        else { toast('Ошибка: ' + (d.error||'?')); btn.disabled = false; btn.textContent = 'Анализировать'; }
+      });
+  } else if (act === 'toggle') {
+    card.classList.toggle('expanded');
+  }
+});
+
+document.getElementById('analyzeAllBtn').addEventListener('click', function(){
+  fetch('/api/library/files')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var pending = (d.files||[]).filter(function(f){ return !f.analyzed; });
+      if (!pending.length) { toast('Все файлы уже проанализированы'); return; }
+      toast('Запускаю анализ ' + pending.length + ' файлов…', 3000);
+      pending.forEach(function(f, i) {
+        setTimeout(function(){
+          fetch('/api/library/analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: f.id}) });
+        }, i * 2000);
+      });
+      setTimeout(loadFiles, pending.length * 2000 + 30000);
+    });
+});
+
+document.getElementById('importUstavBtn').addEventListener('click', function(){
+  fetch('/api/library/import-codex-ustav', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.ok) { toast('Импортировано: ' + (d.imported||0) + ' файлов'); loadFiles(); }
+      else toast('Не нашёл (либо: ' + (d.error||'нет файлов') + ')', 5000);
+    });
+});
+
+bindUpload();
+loadFiles();
+</script>
+</body>
+</html>

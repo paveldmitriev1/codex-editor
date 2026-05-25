@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Кодекс Микомистицизма · v2</title> <link rel="preconnect" href="https://rsms.me/"> <link rel="stylesheet" href="https://rsms.me/inter/inter.css"> <link rel="stylesheet" href="/static/tokens.css"> <link rel="stylesheet" href="/static/style.css"> <style> /* Локальные стили оглавления */ .book { background: var(--color-card); border: 1px solid var(--color-card-border); border-radius: var(--radius-lg); margin-bottom: var(--space-3); overflow: hidden; } /* Priority book (book-obsession) */ .book.priority { border: 2px solid var(--color-accent); box-shadow: 0 6px 20px rgba(91, 91, 245, 0.12); } .book.priority .book-title { color: var(--color-accent); font-weight: var(--weight-semibold); } /* Progress bar для книги */ .book-progress { padding: 8px var(--space-5) 12px; border-bottom: 1px solid var(--color-card-border); background: var(--color-bg); } .book-progress-bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--color-card); border: 1px solid var(--color-card-border); } .book-progress-segment { transition: width 200ms; } .book-progress-segment.finalized { background: var(--color-success); } .book-progress-segment.draft { background: var(--color-accent); } .book-progress-segment.empty { background: transparent; } .book-progress-label { display: flex; gap: var(--space-3); margin-top: 6px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; } .progress-label-finalized { color: var(--color-success); font-weight: var(--weight-bold); } .progress-label-draft { color: var(--color-accent); font-weight: var(--weight-bold); } .progress-label-empty { color: var(--color-text-3); } .progress-label-score { margin-left: auto; padding: 1px 8px; background: var(--color-accent-bg); color: var(--color-accent); border-radius: 999px; font-weight: var(--weight-bold); } .book-header { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); cursor: pointer; user-select: none; transition: background var(--transition-fast); } .book-header:hover { background: var(--color-bg); } .book-toggle { width: 20px; color: var(--color-text-3); transition: transform var(--transition-fast); flex-shrink: 0; font-size: var(--text-sm); } .book.open .book-toggle { transform: rotate(90deg); } .book-icon { width: 28px; height: 28px; background: var(--color-accent-bg); border-radius: var(--radius-md); display: grid; place-items: center; font-size: 14px; flex-shrink: 0; } .book-title { font-size: var(--text-md); font-weight: var(--weight-semibold); color: var(--color-text); flex: 1; min-width: 0; } .book-stats { display: flex; gap: var(--space-2); color: var(--color-text-2); font-size: var(--text-sm); flex-wrap: wrap; } .book-stat { display: inline-flex; gap: 4px; align-items: center; } .book-chapters { border-top: 1px solid var(--color-divider); display: none; } .book.open .book-chapters { display: block; } .chapter-row { display: grid; grid-template-columns: 36px 1fr auto auto auto 60px; gap: var(--space-3); padding: var(--space-3) var(--space-5); align-items: center; border-bottom: 1px solid var(--color-divider); transition: background var(--transition-fast); cursor: pointer; } .chapter-row:last-child { border-bottom: none; } .chapter-row:hover { background: var(--color-bg); } .chapter-row.empty { opacity: 0.55; } .chapter-num { font-size: var(--text-xs); color: var(--color-text-3); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-label); text-align: center; } .chapter-title { font-size: var(--text-base); color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; cursor: pointer; transition: color 100ms; } .chapter-title:hover { color: var(--color-accent); text-decoration: underline; } .chapter-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--radius-sm); font-size: var(--text-sm); background: var(--color-card); border: 1px solid var(--color-card-border); color: var(--color-text-2); font-variant-numeric: tabular-nums; } .chapter-badge.has-grant { background: var(--color-accent-bg); border-color: var(--color-accent-border); color: var(--color-accent); } .chapter-badge.has-voice { background: var(--color-success-bg); border-color: var(--color-success-border); color: var(--color-success); } .chapter-badge.zero { opacity: 0.5; }
+.chapter-status-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--radius-sm); font-size: var(--text-xs); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chapter-status-badge.empty { background: #f3f4f6; color: #6b7280; }
+.chapter-status-badge.sketch { background: #fef3c7; color: #92400e; }
+.chapter-status-badge.draft { background: #dbeafe; color: #1e40af; }
+.chapter-status-badge.near { background: #e0e7ff; color: #4338ca; }
+.chapter-status-badge.done { background: #dcfce7; color: #15803d; } .chapter-size { font-size: var(--text-sm); color: var(--color-text-3); font-variant-numeric: tabular-nums; text-align: right; } .chapter-action { color: var(--color-text-3); text-align: right; font-size: var(--text-md); text-decoration: none; width: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); transition: all 100ms; } .chapter-action:hover { color: var(--color-accent); background: var(--color-accent-bg); } .chapter-expand { background: transparent; border: none; color: var(--color-text-3); cursor: pointer; width: 24px; height: 24px; border-radius: var(--radius-sm); font-size: 12px; transition: all 100ms; } .chapter-expand:hover { background: var(--color-bg); color: var(--color-accent); } .chapter-row.expanded .chapter-expand { transform: rotate(180deg); } .chapter-row:hover .chapter-action { color: var(--color-accent); } .toc-filters { display: flex; gap: var(--space-2); margin-bottom: var(--space-5); flex-wrap: wrap; } .filter-pill { padding: var(--space-2) var(--space-3); border-radius: var(--radius-pill); background: var(--color-card); border: 1px solid var(--color-card-border); font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--color-text-2); cursor: pointer; transition: all var(--transition-fast); } .filter-pill:hover { background: var(--color-hover); color: var(--color-text); } .filter-pill.active { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-text-inverse); } .loading, .error-box { padding: var(--space-12); text-align: center; color: var(--color-text-2); } .error-box { color: var(--color-danger); } /* Inline-раскрытие главы (список файлов) */ .chapter-detail { display: none; padding: var(--space-4) var(--space-5) var(--space-5); background: var(--color-bg); border-bottom: 1px solid var(--color-divider); } .chapter-row.expanded + .chapter-detail { display: block; } .chapter-row.expanded { background: var(--color-accent-bg); } .chapter-row.expanded .chapter-action { transform: rotate(90deg); color: var(--color-accent); } .chapter-row .chapter-action { transition: transform var(--transition-fast); } .detail-section { margin-bottom: var(--space-4); } .detail-section:last-child { margin-bottom: 0; } .detail-label { font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--color-text-3); margin-bottom: var(--space-2); } .detail-files { display: flex; flex-direction: column; gap: 4px; } .detail-file { display: grid; grid-template-columns: 24px 1fr auto auto; gap: var(--space-3); align-items: center; padding: var(--space-2) var(--space-3); background: var(--color-card); border: 1px solid var(--color-card-border); border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--color-text); } .detail-file-icon { color: var(--color-text-3); } .detail-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .detail-file-ext { color: var(--color-text-3); font-size: var(--text-xs); font-family: var(--font-mono); background: var(--color-divider); padding: 2px 6px; border-radius: var(--radius-sm); } .detail-file-size { color: var(--color-text-2); font-size: var(--text-xs); font-variant-numeric: tabular-nums; min-width: 60px; text-align: right; } .detail-actions { display: flex; gap: var(--space-2); margin-top: var(--space-4); } .detail-empty { color: var(--color-text-3); font-size: var(--text-sm); font-style: italic; } /* Под-темы канонической главы */ .subtopics { display: flex; flex-direction: column; gap: 4px; } .subtopic { display: grid; grid-template-columns: 20px 1fr; gap: var(--space-2); padding: 4px var(--space-2); font-size: var(--text-sm); color: var(--color-text); } .subtopic::before { content: "·"; color: var(--color-accent); font-weight: 700; text-align: center; } /* Внешние ссылки (источники по canon) */ .ext-refs { display: flex; flex-direction: column; gap: 4px; } .ext-ref { display: grid; grid-template-columns: 20px 1fr auto; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--color-card); border: 1px solid var(--color-card-border); border-radius: var(--radius-sm); font-size: var(--text-sm); } .ext-ref.found::before { content: "•"; color: var(--color-success); font-weight: 700; } .ext-ref.missing::before { content: "·"; color: var(--color-text-3); font-weight: 700; } .ext-ref-text { min-width: 0; overflow: hidden; } .ext-ref-doc { font-weight: var(--weight-semibold); color: var(--color-text); } .ext-ref-section { color: var(--color-text-2); font-size: var(--text-xs); } .ext-ref-note { color: var(--color-text-3); font-size: var(--text-xs); font-style: italic; margin-top: 2px; } .ext-ref-status { font-size: var(--text-xs); color: var(--color-text-3); align-self: center; } /* Пустая глава, явный маркер */ .chapter-row.empty .chapter-title::after { content: " · нет материала"; color: var(--color-warning); font-size: var(--text-xs); font-weight: var(--weight-semibold); margin-left: var(--space-2); } /* Toast (нижний правый, авто-скрытие) */ .toast-container { position: fixed; bottom: var(--space-6); right: var(--space-6); z-index: var(--z-toast); display: flex; flex-direction: column; gap: var(--space-2); pointer-events: none; } .toast { background: var(--color-text); color: var(--color-text-inverse); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); font-size: var(--text-sm); box-shadow: var(--shadow-md); max-width: 320px; animation: toast-in 280ms ease; pointer-events: auto; } @keyframes toast-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } } .toast.fade { animation: toast-out 200ms ease forwards; } @keyframes toast-out { to { opacity: 0; transform: translateY(20px); } } /* Справочные (reference) разделы, подвальная зона */ .ref-section { margin-top: var(--space-6); padding-top: var(--space-5); border-top: 1px dashed var(--color-card-border); } .ref-label { font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--color-text-3); margin-bottom: var(--space-3); } .ref-pill { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--color-card); border: 1px solid var(--color-card-border); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--color-text-2); margin-right: var(--space-2); } .ref-pill em { font-style: normal; color: var(--color-text-3); font-size: var(--text-xs); } </style>
+</head>
+<body> <div class="app"> <!-- ─── Sidebar, единый шаблон через nav.js (UC-41 Pavel 2026-05-20) ─── --> <aside class="sidebar" id="appSidebar" data-page="toc"></aside> <script src="/static/nav.js"></script> <!-- ─── Основная область, DESIGN_SYSTEM §2 + §3.2 ─── --> <main class="page"> <header class="page-head"> <div> <h1>Оглавление</h1> <p class="page-sub">Карта Кодекса Микомистицизма, все книги и подвязанные материалы из Google Drive</p> </div> </header> <!-- ─── Метрические карточки (Claude.ai-style: чистый текст, без фейковых диаграмм) ─── --> <section class="cards-row"> <div class="card card-claude"> <h3 class="card-title">Материал</h3> <p class="card-desc">Все исходники из Google Drive распределены по разделам. После добавления новых файлов, нажми «Пересобрать».</p> <div class="card-actions"> <button class="btn btn-primary btn-sm" onclick="toast('Пересборка: запусти scripts/pack_chapters.py в терминале')">Пересобрать</button> <button class="btn btn-secondary btn-sm" onclick="document.getElementById('book-obsession')?.scrollIntoView({behavior:'smooth'})">К Книге одержимости</button> </div> </div> <div class="card card-claude"> <div class="card-label">Главы с материалом</div> <div class="card-value" id="metric-chapters"> </div> <div class="card-meta"> <span id="metric-books"> разделов</span> <span id="metric-coverage"> покрытие</span> </div> </div> <div class="card card-claude"> <div class="card-label">Источники</div> <div class="card-value" id="metric-files"> </div> <div class="card-meta"> <span id="metric-grant">Grant 0</span> <span id="metric-voice">Voice 0</span> <span id="metric-size"> </span> </div> </div> </section> <!-- ─── Фильтры ─── --> <div class="toc-filters"> <button class="filter-pill active" data-filter="all">Все главы</button> <button class="filter-pill" data-filter="with-material">С материалом</button> <button class="filter-pill" data-filter="with-voice">С голосом</button> <button class="filter-pill" data-filter="empty">Пустые</button> </div> <!-- ─── Готовые тексты (finalized) ─── --> <section id="finalized-wrap" style="display:none;margin-bottom:var(--space-6)"> <div style="display:flex;align-items:baseline;gap:var(--space-3);margin-bottom:var(--space-3)"> <h2 style="margin:0;font-size:var(--text-lg);font-weight:var(--weight-bold);color:var(--color-success)">Готовые тексты</h2> <span id="finalized-count" style="color:var(--color-text-3);font-size:var(--text-sm)"></span> </div> <div id="finalized-list" style="display:grid;gap:var(--space-2)"></div> </section> <!-- ─── Книги (рендерятся JS) ─── --> <section id="books"> <div class="loading">Загружаю оглавление…</div> </section> <footer class="page-footer"> Кодекс v2 · 127.0.0.1:7788 · build 0.2 · последняя упаковка: <span id="packed-at"> </span> </footer> </main> </div> <script>
+  /* ─── Утилиты ─────────────────────────── */
+  const ICONS = {
+    ustav: "У",
+    prologue: "П",
+    "book-01": "I",
+    "book-02": "II",
+    "book-03": "III",
+    "book-04": "IV",
+    "book-05": "V",
+    "book-06": "VI",
+    "book-07": "VII",
+    "book-08": "VIII",
+    "book-09": "IX",
+    "book-10": "X",
+    "book-11": "XI",
+    "book-12": "XII",
+    epilogue: "Э",
+    appendices: "Пр",
+  };
+
+  function fmtBytes(n) {
+    if (n < 1024) return n + " Б";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " КБ";
+    return (n / 1024 / 1024).toFixed(1) + " МБ";
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return " ";
+    const d = new Date(iso);
+    const months = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+    return `${d.getDate()} ${months[d.getMonth()]}, ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  }
+
+  function plural(n, [one, few, many]) {
+    const mod10 = n % 10,
+      mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return one;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
+    return many;
+  }
+
+  function escape(s) {
+    return String(s || "").replace(/[&<>"']/g, c => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    } [c]));
+  } /* ─── Состояние ───────────────────────── */
+  let TOC = null;
+  let CURRENT_FILTER = "all"; /* ─── Рендер ──────────────────────────── */
+  function renderBooks() {
+    const root = document.getElementById("books");
+    if (!TOC || !TOC.books) {
+      root.innerHTML = '<div class="error-box">Нет данных оглавления</div>';
+      return;
+    } /* Только active разделы, Устав и другие reference в подвале отдельно */
+    const activeBooks = TOC.books.filter(b => (b.status || "active") === "active");
+    const html = activeBooks.map(book => {
+      const chapters = book.chapters || []; /* Защита от отсутствия stats у книг созданных через structure_audit */
+      const safeStats = (s) => s || {
+        grant_count: 0,
+        voice_count: 0,
+        total_bytes: 0
+      };
+      const filtered = chapters.filter(ch => {
+        const s = safeStats(ch.stats);
+        if (CURRENT_FILTER === "all") return true;
+        if (CURRENT_FILTER === "with-material") return s.grant_count > 0;
+        if (CURRENT_FILTER === "with-voice") return s.voice_count > 0;
+        if (CURRENT_FILTER === "empty") return s.grant_count === 0 && s.voice_count === 0;
+        return true;
+      });
+      if (filtered.length === 0) return "";
+      const icon = ICONS[book.id] || "·";
+      const bs = safeStats(book.stats);
+      const grantTotal = bs.grant_count;
+      const voiceTotal = bs.voice_count;
+      const sizeTotal = bs.total_bytes;
+      const chaptersHtml = filtered.map(ch => {
+        const cs = safeStats(ch.stats);
+        const isEmpty = cs.grant_count === 0 && cs.voice_count === 0;
+        const grantFiles = (ch.sources && ch.sources.grant) || [];
+        const voiceFiles = (ch.sources && ch.sources.voice) || [];
+        const grantHtml = grantFiles.length ? grantFiles.map(f =>
+          ` <div class="detail-file"> <span class="detail-file-icon"></span> <span class="detail-file-name">${escape(f.name)}</span> <span class="detail-file-ext">${escape((f.ext || '').replace('.',''))}</span> <span class="detail-file-size">${fmtBytes(f.size)}</span> </div>`
+          ).join("") : '<div class="detail-empty"> нет файлов из Grant</div>';
+        const voiceHtml = voiceFiles.length ? voiceFiles.map(f =>
+          ` <div class="detail-file"> <span class="detail-file-icon"></span> <span class="detail-file-name">${escape(f.name)}</span> <span class="detail-file-ext">voice</span> <span class="detail-file-size">${fmtBytes(f.size)}</span> </div>`
+          ).join("") : '<div class="detail-empty"> нет голосовых надиктовок</div>';
+        const subtopics = ch.subtopics || [];
+        const extRefs = ch.external_refs || [];
+        const subtopicsHtml = subtopics.length ?
+          `<div class="detail-section"> <div class="detail-label">Под-темы канона · ${subtopics.length}</div> <div class="subtopics">${subtopics.map(s => `<div class="subtopic">${escape(s)}</div>`).join("")}</div> </div>` :
+          "";
+        const extRefsHtml = extRefs.length ?
+          `<div class="detail-section"> <div class="detail-label">Источники по канону · ${extRefs.length} (${extRefs.filter(e=>e.found).length} есть на диске)</div> <div class="ext-refs"> ${extRefs.map(e => ` <div class="ext-ref ${e.found ? 'found' : 'missing'}"> <div class="ext-ref-text"> <div class="ext-ref-doc">${escape(e.doc)}</div> ${e.section ? `<div class="ext-ref-section">раздел: ${escape(e.section)}</div>` : ""} ${e.note ? `<div class="ext-ref-note">${escape(e.note)}</div>` : ""} </div> <div class="ext-ref-status">${e.found ? "" : "не найден"}</div> </div>`).join("")} </div> </div>` :
+          "";
+        return ` <div class="chapter-row ${isEmpty ? "empty" : ""}" data-chapter-id="${ch.id}"> <div class="chapter-num">${(ch.number === 0 || ch.number === undefined) ? " " : String(ch.number).padStart(2,"0")}</div> <a class="chapter-title" href="/editor?chapter=${encodeURIComponent(ch.id)}" title="Открыть в редакторе">${escape(ch.title || ch.title_clean || ch.id)}</a> <span class="chapter-status-badge ${ch.status_kind || 'empty'}" title="${escape(ch.status_label || '')} · готовность ${ch.readiness_pct || 0}%${(ch.readiness_signals || []).length ? '\n\nИз чего складывается:\n' + ch.readiness_signals.map(function(s){ return s.label + ': ' + s.points + '/' + s.max + ' — ' + s.why; }).join('\n') : ''}">${ch.status_kind === 'done' ? '✓ ' : ''}${escape(ch.status_label || 'пусто')}${ch.readiness_pct > 0 ? ' ' + ch.readiness_pct + '%' : ''}</span> <span class="chapter-badge ${cs.grant_count > 0 ? "has-grant" : "zero"}">файлы ${cs.grant_count}</span> <span class="chapter-size" title="${ch.content_updated_at ? 'последняя правка: ' + fmtDate(ch.content_updated_at) : 'размер материала'}">${ch.content_updated_at ? 'ред. ' + fmtDate(ch.content_updated_at) : fmtBytes(cs.total_bytes)}</span> <a class="chapter-action btn-open" href="/editor?chapter=${encodeURIComponent(ch.id)}" title="Открыть в редакторе">→</a> <button class="chapter-expand" onclick="toggleChapter(this.parentElement)" title="Раскрыть детали">▾</button> </div> <div class="chapter-detail"> ${ch.content_updated_at ? `<div class="detail-section"><div class="detail-label">Последняя правка</div><div style="color:var(--color-text-2);font-size:var(--text-sm)">${fmtDate(ch.content_updated_at)}${ch.chars ? ` · ${ch.chars.toLocaleString('ru-RU')} символов` : ''}${ch.paragraphs ? ` · ${ch.paragraphs} параграфов` : ''}</div></div>` : ''} ${subtopicsHtml} ${extRefsHtml} <div class="detail-section"> <div class="detail-label">Файлы из Google Drive · ${grantFiles.length}</div> <div class="detail-files">${grantHtml}</div> </div> <div class="detail-section"> <div class="detail-label">Голосовые надиктовки · ${voiceFiles.length}</div> <div class="detail-files">${voiceHtml}</div> </div> <div class="detail-actions"> <a href="/editor?chapter=${ch.id}" class="btn btn-primary btn-sm" onclick="event.stopPropagation();">Открыть в редакторе</a> ${ch.is_finalized ? `<a href="/read/${ch.id}" target="_blank" class="btn btn-success btn-sm" onclick="event.stopPropagation();">Прочитать финальный текст</a>` : ''} <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); copyPath('${ch.id}')">Скопировать путь</button> </div> </div>`;
+      }).join(""); /* book-obsession приоритет №1, открыта по умолчанию + special highlight */
+      const isOpen = book.id === "book-obsession" || book.id === "book-01";
+      const isPriority = book.id === "book-obsession"; /* Progress strip */
+      const ps = book.progress_summary;
+      let progressHtml = "";
+      if (ps && ps.total > 0) {
+        const pctFinal = ps.pct_finalized;
+        const pctDraft = ps.pct_in_progress - pctFinal;
+        const pctEmpty = 100 - ps.pct_in_progress;
+        const qb = ps.quality_buckets || {};
+        progressHtml =
+          ` <div class="book-progress"> <div class="book-progress-bar"> <div class="book-progress-segment finalized" style="width:${pctFinal}%" title="${ps.finalized} финализировано"></div> <div class="book-progress-segment draft" style="width:${pctDraft}%" title="${ps.draft} в работе"></div> <div class="book-progress-segment empty" style="width:${pctEmpty}%" title="${ps.empty} нетронуто"></div> </div> <div class="book-progress-label"> ${ps.finalized > 0 ? `<span class="progress-label-finalized">готов ${ps.finalized}</span>` : ''} ${ps.draft > 0 ? `<span class="progress-label-draft">черновик ${ps.draft}</span>` : ''} ${ps.empty > 0 ? `<span class="progress-label-empty">·${ps.empty}</span>` : ''} ${ps.avg_quality > 0 ? `<span class="progress-label-score" title="средний quality score">${ps.avg_quality}%</span>` : ''} </div> </div> `;
+      }
+      return ` <div class="book ${isOpen ? "open" : ""} ${isPriority ? "priority" : ""}" id="${book.id}"> <div class="book-header" onclick="this.parentElement.classList.toggle('open')"> <span class="book-toggle">▶</span> <div class="book-icon">${icon}</div> <div class="book-title">${isPriority ? '<span class="book-priority-mark">●</span> ' : ''}${escape(book.title_clean || book.title)}</div> <div class="book-stats"> <span class="book-stat">${filtered.length} ${plural(filtered.length, ["глава","главы","глав"])}</span> <span class="book-stat">файлы ${grantTotal}</span> <span class="book-stat">голос ${voiceTotal}</span> <span class="book-stat">${fmtBytes(sizeTotal)}</span> </div> </div> ${progressHtml} <div class="book-chapters">${chaptersHtml}</div> </div>`;
+    }).join(""); /* Подвал: справочный материал (reference), компактной строкой */
+    const refBooks = TOC.books.filter(b => b.status === "reference");
+    let refHtml = "";
+    if (refBooks.length) {
+      const items = refBooks.map(b => {
+        const fcount = (b.stats || {
+          grant_count: 0
+        }).grant_count;
+        return `<span class="ref-pill">${escape(b.title_clean || b.title)} <em>· уже написано · ${fcount} ${plural(fcount, ["файл","файла","файлов"])} как стилевой эталон</em></span>`;
+      }).join("");
+      refHtml = `<div class="ref-section"><div class="ref-label">Справочно (не редактируем)</div>${items}</div>`;
+    }
+    root.innerHTML = (html || '<div class="loading">По фильтру ничего нет</div>') + refHtml;
+  }
+
+  function renderMetrics() {
+    if (!TOC) return;
+    const s = TOC.stats; /* Активные главы, без Устава и других reference */
+    const activeChapters = s.active_chapters ?? s.chapters;
+    const activeBooks = s.active_books ?? s.books;
+    document.getElementById("metric-chapters").textContent = activeChapters;
+    document.getElementById("metric-books").textContent =
+      `${activeBooks} ${plural(activeBooks, ["раздел","раздела","разделов"])}`;
+    document.getElementById("metric-files").textContent = (s.grant_files + s.voice_files);
+    document.getElementById("metric-grant").textContent = `Grant ${s.grant_files}`;
+    document.getElementById("metric-voice").textContent = `Voice ${s.voice_files}`;
+    document.getElementById("metric-size").textContent = fmtBytes(s.total_bytes);
+    const pct = Math.round((activeChapters / 90) * 100);
+    document.getElementById("metric-coverage").textContent = `${pct}% от 90`;
+    document.getElementById("packed-at").textContent = fmtDate(TOC.generated_at);
+  }
+  async function loadFinalized() {
+      try {
+        const r = await fetch("/api/chapters-status");
+        const d = await r.json();
+        const wrap = document.getElementById("finalized-wrap");
+        const list = document.getElementById("finalized-list");
+        const count = document.getElementById("finalized-count");
+        if (!d.finalized || d.finalized.length === 0) {
+          wrap.style.display = "none";
+          return;
+        }
+        wrap.style.display = "block";
+        count.textContent = `${d.count} ${plural(d.count, ['глава','главы','глав'])}`;
+        list.innerHTML = d.finalized.map(f => {
+          const dt = f.finalized_at ? new Date(f.finalized_at).toLocaleString("ru-RU") : "";
+          return `<a href="/editor?chapter=${f.chapter_id}" style="display:grid;grid-template-columns:auto 1fr auto auto;gap:var(--space-3);align-items:center;padding:var(--space-3) var(--space-4);background:var(--color-success-bg);border:1px solid var(--color-success-border);border-left:4px solid var(--color-success);border-radius:var(--radius-md);color:var(--color-text);transition:all var(--transition-fast);text-decoration:none"> <span style="color:var(--color-success);font-weight:var(--weight-bold);font-size:18px">•</span> <div> <div style="font-weight:var(--weight-semibold)">${escape(f.chapter_id)}</div> <div style="font-size:var(--text-xs);color:var(--color-text-3)">Финализировано ${escape(dt)} · ${f.paragraphs} параграфов</div> </div> <span style="font-size:var(--text-xs);color:var(--color-success);font-weight:var(--weight-semibold);text-transform:uppercase;letter-spacing:var(--tracking-label)">Готов</span> <span style="color:var(--color-text-3)">→</span> </a>`;
+        }).join("");
+      } catch (e) {
+        /* тихо игнорим, finalized это опциональная feature */
+      }
+    }
+
+    /* ─── Загрузка ────────────────────────── */
+    async function loadToc() {
+          try {
+            loadFinalized(); /* параллельно */
+            const r = await fetch("/api/toc");
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            TOC = await r.json();
+            if (!TOC.books || TOC.books.length === 0) {
+              document.getElementById("books").innerHTML =
+                '<div class="error-box">toc.json пуст. Запусти: <code>python3 ~/Desktop/Codex2/scripts/pack_chapters.py</code></div>';
+              return;
+            }
+            renderMetrics();
+            renderBooks();
+          } catch (e) {
+            document.getElementById("books").innerHTML =
+              `<div class="error-box">Ошибка загрузки: ${escape(e.message)}</div>`;
+          }
+        } /* ─── Фильтры ─────────────────────────── */
+        document.querySelectorAll(".filter-pill").forEach(btn => {
+          btn.addEventListener("click", () => {
+            document.querySelectorAll(".filter-pill").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            CURRENT_FILTER = btn.dataset.filter;
+            renderBooks();
+          });
+        }); /* ─── Поиск (UC-48: search убран из nav.js, guard на null) ───── */
+        const _searchInput = document.getElementById("searchInput");
+        if (_searchInput) {
+          _searchInput.addEventListener("input", (e) => {
+            const q = e.target.value.toLowerCase().trim();
+            if (!q) {
+              renderBooks();
+              return;
+            }
+            document.querySelectorAll(".chapter-row").forEach(row => {
+              const title = row.querySelector(".chapter-title").textContent.toLowerCase();
+              row.style.display = title.includes(q) ? "" : "none";
+            });
+            document.querySelectorAll(".book").forEach(b => b.classList.add("open"));
+          });
+          document.addEventListener("keydown", (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+              e.preventDefault();
+              _searchInput.focus();
+            }
+          });
+        } /* ─── Toast ────────────────────────────── */
+        function toast(message, ms = 3000) {
+          let container = document.querySelector(".toast-container");
+          if (!container) {
+            container = document.createElement("div");
+            container.className = "toast-container";
+            document.body.appendChild(container);
+          }
+          const el = document.createElement("div");
+          el.className = "toast";
+          el.textContent = message;
+          container.appendChild(el);
+          setTimeout(() => {
+            el.classList.add("fade");
+            setTimeout(() => el.remove(), 200);
+          }, ms);
+        } /* ─── Раскрытие главы ──────────────────── */
+        function toggleChapter(rowEl) {
+          const isOpen = rowEl.classList.contains("expanded"); /* Закрыть другие открытые в этой же книге */
+          const book = rowEl.closest(".book");
+          if (book) {
+            book.querySelectorAll(".chapter-row.expanded").forEach(r => {
+              if (r !== rowEl) r.classList.remove("expanded");
+            });
+          }
+          rowEl.classList.toggle("expanded");
+        }
+
+        function copyPath(chapterId) {
+          const [bookId] = chapterId.split("-ch-");
+          const path = `~/Desktop/Codex2/sources/${bookId}/${chapterId}/`;
+          navigator.clipboard.writeText(path).then(() => toast("Скопировано: " + path), () => toast(
+            "Не получилось скопировать. Путь: " + path, 5000));
+        }
+        loadToc();
+</script> <script src="/static/sidebar.js"></script>
+</body>
+</html>

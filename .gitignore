@@ -1,0 +1,81 @@
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Editor configs
+.vscode/
+.idea/
+
+# === Codex2 runtime / private ===
+
+# Runtime state, logs, screenshots, events
+.codex/
+
+# History of canon doctrine changes
+.canon-history/
+
+# Generated reports (briefings, audit logs)
+reports/
+
+# Source documents and fresh downloads (book content)
+sources/
+fresh-downloads/
+voice-corpus/
+
+# Author's book content — all chapters except the empty .canon style folder
+chapters/*
+!chapters/.canon/
+!chapters/.canon/**
+
+# Author's library files — example texts uploaded for style reference
+# (.gitkeep keeps the empty directory, index.json shows expected structure)
+data/library/files/
+!data/library/files/.gitkeep
+
+# Per-chapter analysis caches
+data/personas/
+data/reconciled/
+data/sequence/
+data/master-audit/
+data/critics-qa-sessions/
+data/editor-journalist-sessions/
+data/journalist-sessions/
+
+# Local backup of critics-config from a particular session
+data/critics-config.before-*.json
+
+# OAuth / secrets — never commit
+.env
+.env.*
+*.pem
+*.key
+
+# Author's personal context that auto-loads in Claude Code
+CLAUDE.md
+USER.md
+OPERATIONAL-CONTEXT.md
+NIGHT-100-PLAN.md
+PROTOCOLS.md
+UI_FIX_BRIEF*.md
+MORNING-BRIEFING.md
+
+# toc.json regenerated from chapters/
+toc.json
+toc.json.bak.*
+
+# Local runtime artefacts
+app/.server.log
+app/.server.pid
+*.pid
+*.log
+

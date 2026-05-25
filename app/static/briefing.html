@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Утренний брифинг · Codex v2</title>
+<link rel="preconnect" href="https://rsms.me/">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app"> <aside class="sidebar" id="appSidebar" data-page="briefing"></aside> <script src="/static/nav.js"></script> <main class="page"> <header class="page-head"> <div> <h1>Утренний брифинг</h1> <p class="page-sub">План, рекомендации, баги, прогресс, одной страницей</p> </div> <span class="page-sub" id="generatedAt"></span> </header> <div class="page-meta-row" id="systemStatus">Загружаю статус…</div> <div class="page-toolbar"> <button class="btn btn-secondary btn-sm" onclick="regenerateBriefing()">Пересобрать</button> <a class="btn btn-ghost btn-sm" href="#plan">План на день</a> <a class="btn btn-ghost btn-sm" href="#friction">Упрощения</a> <a class="btn btn-ghost btn-sm" href="#recs">Рекомендации</a> <a class="btn btn-ghost btn-sm" href="#bugs">Баги</a> <a class="btn btn-ghost btn-sm" href="#progress">Прогресс</a> </div> <div class="page-body" id="briefingContent">Загружаю отчёт…</div> </main>
+</div> <script>
+ function esc(s) {
+   if (s == null) return '';
+   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+ }
+
+ function mdToHtml(md) {
+   if (!md) return '';
+   const lines = md.split('\n');
+   let html = '';
+   let inUl = false,
+     inOl = false,
+     inCode = false,
+     inBq = false,
+     inTable = false,
+     tableHeader = false;
+
+   function closeAll() {
+     if (inUl) {
+       html += '</ul>';
+       inUl = false;
+     }
+     if (inOl) {
+       html += '</ol>';
+       inOl = false;
+     }
+     if (inBq) {
+       html += '</blockquote>';
+       inBq = false;
+     }
+     if (inTable) {
+       html += '</table>';
+       inTable = false;
+       tableHeader = false;
+     }
+   }
+   for (let i = 0; i < lines.length; i++) {
+     const raw = lines[i];
+     const line = raw.trimEnd();
+     if (line.startsWith('```')) {
+       if (inCode) {
+         html += '</pre>';
+         inCode = false;
+       } else {
+         closeAll();
+         html += '<pre>';
+         inCode = true;
+       }
+       continue;
+     }
+     if (inCode) {
+       html += esc(raw) + '\n';
+       continue;
+     }
+     if (!line.trim()) {
+       closeAll();
+       continue;
+     } /* UC-73: horizontal rule */
+     if (/^[\-=*_]{3,}\s*$/.test(line.trim())) {
+       closeAll();
+       html += '<hr>';
+       continue;
+     }
+     const h = line.match(/^(#{1,6})\s+(.*)$/);
+     if (h) {
+       closeAll();
+       const level = h[1].length;
+       const id = h[2].toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '-').replace(/^-|-$/g, '');
+       html += `<h${level} id="${id}">${inlineMd(h[2])}</h${level}>`;
+       continue;
+     }
+     if (line.startsWith('> ')) {
+       if (!inBq) {
+         closeAll();
+         html += '<blockquote>';
+         inBq = true;
+       }
+       html += inlineMd(line.slice(2)) + ' ';
+       continue;
+     }
+     if (line.startsWith('|') && line.endsWith('|')) {
+       if (!inTable) {
+         closeAll();
+         html += '<table>';
+         inTable = true;
+         tableHeader = true;
+       }
+       const cells = line.split('|').slice(1, -1).map(c => c.trim());
+       if (cells.every(c => /^:?-+:?$/.test(c))) {
+         tableHeader = false;
+         continue;
+       }
+       const tag = tableHeader ? 'th' : 'td';
+       html += '<tr>' + cells.map(c => `<${tag}>${inlineMd(c)}</${tag}>`).join('') + '</tr>';
+       if (tableHeader) tableHeader = false;
+       continue;
+     } else if (inTable) {
+       closeAll();
+     }
+     const ul = line.match(/^[\-\*]\s+(.*)$/);
+     const ol = line.match(/^\d+\.\s+(.*)$/);
+     if (ul) {
+       if (!inUl) {
+         closeAll();
+         html += '<ul>';
+         inUl = true;
+       }
+       html += `<li>${inlineMd(ul[1])}</li>`;
+       continue;
+     }
+     if (ol) {
+       if (!inOl) {
+         closeAll();
+         html += '<ol>';
+         inOl = true;
+       }
+       html += `<li>${inlineMd(ol[1])}</li>`;
+       continue;
+     }
+     closeAll();
+     html += `<p>${inlineMd(line)}</p>`;
+   }
+   closeAll();
+   if (inCode) html += '</pre>';
+   return html;
+ }
+
+ function inlineMd(s) {
+   return esc(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>')
+     .replace(/\*([^*]+)\*/g, '<em>$1</em>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(
+       /\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+ }
+ async function loadHeartbeat() {
+   try {
+     const r = await fetch("/api/heartbeat");
+     const d = await r.json();
+     const status = document.getElementById(
+     "systemStatus"); /* UC-72 (SIDEBAR_SPEC §3.7): единый label-value паттерн, // зелёная точка для alive, без разнобоя. */
+     if (d.alive) {
+       status.innerHTML =
+         ` <span class="status-item"><span class="dot alive"></span><span class="status-value">Система живая</span></span> <span class="status-item"><span class="status-label">idle_keeper</span><span class="status-value">${esc(d.age_human)}</span></span> <span class="status-item"><span class="status-label">Pavel простой</span><span class="status-value">${d.pavel_idle_min} мин</span></span> <span class="status-item"><span class="status-label">состояние</span><span class="status-value">${esc(d.activity || ' ')}</span></span> `;
+     } else {
+       status.innerHTML =
+         ` <span class="status-item"><span class="dot dead"></span><span class="status-value">Не отвечает</span></span> <span class="status-item"><span class="status-label">последний heartbeat</span><span class="status-value">${esc(d.message || d.age_human || '?')}</span></span>`;
+     }
+   } catch (e) {
+     document.getElementById("systemStatus").textContent = "Не удалось получить статус: " + e.message;
+   }
+ }
+ async function loadBriefing() {
+   try {
+     const r = await fetch("/api/briefing");
+     const d = await r.json();
+     if (!d.exists) {
+       document.getElementById("briefingContent").innerHTML =
+         ` <section class="page-section"><p>${esc(d.message || 'Брифинг не создан')}</p> <button class="btn btn-primary btn-sm" onclick="regenerateBriefing()">Сгенерировать сейчас</button></section>`;
+       return;
+     }
+     document.getElementById("generatedAt").textContent = d.mtime_human ? `Обновлено · ${d.mtime_human}` : '';
+     const md = d.content || '';
+     const sections = splitMdBySections(md);
+     const container = document.getElementById("briefingContent");
+     container.innerHTML = ''; /* UC-72: технические детали в <details> вместо как основной контент */
+     if (d.tech_meta) {
+       const meta = d.tech_meta;
+       const details = document.createElement("details");
+       details.className = "tech-meta-details";
+       details.innerHTML =
+         ` <summary>Технические детали генерации</summary> <dl class="metadata-list"> <dt>Сгенерировано</dt><dd>${esc(meta.generated_at || ' ')}</dd> <dt>Модель</dt><dd><code>${esc(meta.model || ' ')}</code></dd> <dt>Tokens in</dt><dd>${meta.tokens_in || ' '}</dd> <dt>Tokens out</dt><dd>${meta.tokens_out || ' '}</dd> </dl> `;
+       container.appendChild(details);
+     }
+     const slugMap = {
+       'ПЛАН НА ДЕНЬ': 'plan',
+       'УПРОЩЕНИЯ ПРОЦЕССОВ': 'friction',
+       'РЕКОМЕНДАЦИИ': 'recs',
+       'БАГ-АУДИТ': 'bugs',
+       'ПРОГРЕСС ПО КНИГАМ': 'progress',
+       'СЕГОДНЯШНИЙ NIGHTLY-IMPROVEMENT': 'nightly',
+     };
+     sections.forEach(s => {
+       const section = document.createElement("section");
+       section.className = "page-section";
+       const matchKey = Object.keys(slugMap).find(k => s.title.toUpperCase().includes(k));
+       if (matchKey) section.id = slugMap[matchKey];
+       section.innerHTML = `<h2>${esc(s.title)}</h2>${mdToHtml(s.body)}`;
+       container.appendChild(section);
+     });
+   } catch (e) {
+     document.getElementById("briefingContent").innerHTML =
+       `<section class="page-section"><p>Сеть: ${esc(e.message)}</p></section>`;
+   }
+ }
+
+ function splitMdBySections(md) {
+   const lines = md.split('\n');
+   const sections = [];
+   let current = null;
+   for (const line of lines) {
+     const m = line.match(/^##\s+(.*)$/);
+     if (m) {
+       if (current) sections.push(current);
+       current = {
+         title: m[1].replace(/^[^\wА-ЯЁа-яё]+/, '').trim(),
+         body: ''
+       };
+     } else if (current) {
+       current.body += line + '\n';
+     }
+   }
+   if (current) sections.push(current);
+   return sections;
+ }
+ async function regenerateBriefing() {
+   try {
+     const r = await fetch("/api/briefing/regenerate", {
+       method: "POST"
+     });
+     const d = await r.json();
+     if (d.ok) await loadBriefing();
+     else alert("Ошибка: " + (d.error || '?'));
+   } catch (e) {
+     alert("Сеть: " + e.message);
+   }
+ }
+ loadHeartbeat();
+ loadBriefing();
+ setInterval(loadHeartbeat, 60000);
+</script>
+</body>
+</html>

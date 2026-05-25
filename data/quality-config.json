@@ -1,0 +1,10 @@
+{
+  "target_masterpiece": 95,
+  "target_passing": 80,
+  "target_rework": 60,
+  "ai_threshold_warn": 35,
+  "ai_threshold_danger": 60,
+  "voice_min_fidelity_pct": 70,
+  "density_min_ok_axes": 2,
+  "model": "claude-opus-4-7"
+}

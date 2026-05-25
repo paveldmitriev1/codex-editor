@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Редактор Книги · Кодекс v2</title>
+  <link rel="preconnect" href="https://rsms.me/">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .book-card {
+      background: var(--color-bg-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: var(--space-xl);
+      margin-bottom: var(--space-lg);
+    }
+    .bot-card {
+      background: var(--color-bg-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: var(--space-xl);
+      margin-bottom: var(--space-md);
+    }
+    .bot-card.disabled { opacity: 0.55; background: var(--color-bg-subtle); }
+    .bot-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); }
+    .bot-label { font-size: var(--font-size-h3); font-weight: var(--font-weight-semibold); margin: 0; }
+    .bot-meta { font-size: var(--font-size-small); color: var(--color-text-muted); margin: var(--space-xs) 0 var(--space-md); }
+    .bot-meta strong { color: var(--color-text-primary); font-weight: var(--font-weight-medium); }
+    .bot-prompt {
+      width: 100%; min-height: 140px;
+      padding: var(--space-md);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-bg-subtle);
+      font-family: var(--font-mono);
+      font-size: var(--font-size-small);
+      resize: vertical;
+    }
+    .toggle-switch { display: inline-flex; align-items: center; gap: var(--space-sm); cursor: pointer; }
+    .toggle-switch input { display: none; }
+    .toggle-track { width: 36px; height: 20px; background: var(--color-border-strong); border-radius: var(--radius-full); position: relative; transition: background var(--transition-fast); }
+    .toggle-track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: transform var(--transition-fast); }
+    .toggle-switch input:checked + .toggle-track { background: var(--color-accent); }
+    .toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); }
+    .stage-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      font-size: var(--font-size-caption);
+      background: var(--color-accent-soft);
+      color: var(--color-accent-text);
+      font-weight: var(--font-weight-semibold);
+      margin-right: var(--space-sm);
+    }
+    .chapter-checkbox-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-xs);
+      max-height: 320px;
+      overflow-y: auto;
+      padding: var(--space-md);
+      background: var(--color-bg-subtle);
+      border-radius: var(--radius-md);
+    }
+    .chapter-checkbox-list label {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: var(--font-size-small);
+    }
+    .chapter-checkbox-list label:hover { background: var(--color-bg-muted); border-radius: var(--radius-sm); }
+    .session-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: var(--space-sm) var(--space-md);
+      border-bottom: 1px solid var(--color-border);
+      font-size: var(--font-size-small);
+    }
+    .iteration-history {
+      background: var(--color-bg-subtle);
+      border-radius: var(--radius-md);
+      padding: var(--space-md);
+      margin-top: var(--space-md);
+    }
+    .iteration-row { display: flex; gap: var(--space-md); padding: 4px 0; font-size: var(--font-size-caption); }
+    .score-pill {
+      display: inline-block; padding: 2px 8px;
+      border-radius: var(--radius-full);
+      font-weight: var(--font-weight-bold);
+      font-family: var(--font-mono);
+    }
+    .score-pill.high { background: var(--color-success-soft); color: var(--color-success); }
+    .score-pill.mid { background: var(--color-warning-soft); color: var(--color-warning); }
+    .score-pill.low { background: var(--color-danger-soft); color: var(--color-danger); }
+  </style>
+</head>
+<body class="hide-ui-codes">
+  <div class="app">
+    <aside class="sidebar" id="appSidebar" data-page="book-editor"></aside>
+    <main class="page">
+      <header class="page-head">
+        <div>
+          <h1>Редактор Книги</h1>
+          <p class="page-sub">Макро-уровень: книга как организм из 8-10 глав. 5 ботов: Хранитель Памяти, Детектор Повторений, Стилевой Редактор, Архитектор Композиции, Синтез Книги.</p>
+        </div>
+      </header>
+
+      <div class="page-body">
+
+        <section class="page-section">
+          <h2 style="margin:0 0 var(--space-md);font-size:var(--font-size-h2)">Выбор книги</h2>
+          <p class="page-sub" style="margin-bottom:var(--space-md)">Выбери книгу и главы которые входят в неё (только обработанные критиками покажутся как готовые).</p>
+
+          <div style="margin-bottom:var(--space-md)">
+            <label style="font-size:var(--font-size-small);color:var(--color-text-muted)">Книга</label>
+            <select id="bookSelect" class="editor-chapter-select" style="display:block;width:100%;max-width:500px;margin-top:4px;padding:8px 12px;border:1px solid var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-surface);font-size:var(--font-size-body)">
+              <option value="">Загружаю книги…</option>
+            </select>
+          </div>
+
+          <div style="margin-bottom:var(--space-md)">
+            <label style="font-size:var(--font-size-small);color:var(--color-text-muted)">Главы (галочки)</label>
+            <div id="chaptersList" class="chapter-checkbox-list" style="margin-top:4px">
+              <div style="color:var(--color-text-muted)">Выбери книгу сверху</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:var(--space-md);align-items:center;flex-wrap:wrap">
+            <div>
+              <label style="font-size:var(--font-size-small);color:var(--color-text-muted)">Целевой балл (threshold)</label>
+              <input type="number" id="targetScore" value="80" min="50" max="100"
+                style="display:block;width:80px;padding:6px 10px;border:1px solid var(--color-border);border-radius:var(--radius-md);margin-top:4px;font-family:var(--font-mono)">
+            </div>
+            <div>
+              <label style="font-size:var(--font-size-small);color:var(--color-text-muted)">Макс. итераций</label>
+              <input type="number" id="maxIterations" value="3" min="1" max="10"
+                style="display:block;width:80px;padding:6px 10px;border:1px solid var(--color-border);border-radius:var(--radius-md);margin-top:4px;font-family:var(--font-mono)">
+            </div>
+            <div style="margin-top:18px">
+              <button class="btn btn-primary" onclick="runBookEditor()">Запустить Редактора Книги</button>
+            </div>
+          </div>
+          <p class="page-sub" style="margin-top:var(--space-md);font-size:var(--font-size-caption)">
+            Итеративный цикл: 5 ботов → отчёт → если score &lt; threshold → правки → запуск снова. Pavel: «несколько итераций пока не дойдёшь до определённого балла».
+          </p>
+        </section>
+
+        <div id="runStatus" style="display:none"></div>
+
+        <section class="page-section">
+          <h2 style="margin:0 0 var(--space-md);font-size:var(--font-size-h2)">5 ботов Редактора Книги</h2>
+          <div id="botsList"><div class="loading">Загружаю…</div></div>
+        </section>
+
+        <section class="page-section">
+          <h2 style="margin:0 0 var(--space-md);font-size:var(--font-size-h2)">История сессий</h2>
+          <p class="page-sub" style="margin-bottom:var(--space-md)">Pavel: «возможность сравнить как книга развивалась от итерации к итерации».</p>
+          <div id="sessionsList"><div class="loading">Загружаю историю…</div></div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/nav.js"></script>
+  <script>
+    let BOTS = null;
+    let TOC = null;
+    function esc(s) { return String(s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+    async function loadBots() {
+      try {
+        const r = await fetch("/api/book-editor/config");
+        BOTS = await r.json();
+        renderBots();
+      } catch (e) {
+        document.getElementById("botsList").innerHTML = `<div class="error-box">Ошибка: ${esc(e.message)}</div>`;
+      }
+    }
+
+    function renderBots() {
+      const order = ["memory_keeper","repetition_detector","style_editor","composition_architect","book_synthesis"];
+      document.getElementById("botsList").innerHTML = order.filter(id => BOTS[id]).map(id => {
+        const b = BOTS[id];
+        return `
+          <div class="bot-card ${b.enabled ? '' : 'disabled'}" data-id="${esc(id)}">
+            <div class="bot-head">
+              <div>
+                <span class="stage-badge">Stage ${b.stage || 1}</span>
+                <span class="bot-label">${esc(b.label || id)}</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" ${b.enabled ? 'checked' : ''} onchange="toggleBot('${esc(id)}', this.checked)">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="bot-meta">
+              <strong>Модель:</strong> ${esc(b.model)} ·
+              <strong>Thinking:</strong> ${b.thinking_budget} tokens ·
+              <strong>ID:</strong> <code>${esc(id)}</code>
+            </div>
+            <textarea class="bot-prompt" oninput="updateBotPrompt('${esc(id)}', this.value)">${esc(b.system)}</textarea>
+          </div>`;
+      }).join('');
+    }
+
+    function toggleBot(id, enabled) { BOTS[id].enabled = enabled; renderBots(); }
+    function updateBotPrompt(id, value) { BOTS[id].system = value; }
+
+    async function loadToc() {
+      // UC-88 (Pavel 2026-05-21): «в Редактор Книги попадают только КНИГИ
+      // у которых ВСЕ главы обработаны критиками».
+      try {
+        const r = await fetch("/api/book-editor/eligible-chapters");
+        const d = await r.json();
+        TOC = d;
+        const sel = document.getElementById("bookSelect");
+        const list = document.getElementById("chaptersList");
+        const hasBooks = d.books && d.books.length > 0;
+        const partial = d.partial || [];
+        if (!hasBooks) {
+          sel.innerHTML = '<option value="">— нет книг с полным циклом критиков —</option>';
+          let html = '<div style="color:var(--color-text-muted);padding:var(--space-md);line-height:1.5">';
+          html += 'Ни одна книга ещё не прошла критиков полностью. Книга попадает сюда только когда <strong>ВСЕ её главы</strong> обработаны через <a href="/critics" style="color:var(--color-accent)">Критиков</a>.';
+          if (partial.length > 0) {
+            html += '<div style="margin-top:var(--space-md);padding-top:var(--space-md);border-top:1px solid var(--color-border)"><strong>Почти готовы:</strong></div>';
+            html += '<ul style="margin-top:var(--space-sm);padding-left:var(--space-lg)">';
+            for (const p of partial) {
+              html += `<li><strong>${esc(p.book_title || p.book_id)}</strong> — ${p.done_count} / ${p.total_count} глав готовы. Осталось прогнать через критиков: ${(p.missing || []).slice(0, 3).map(m => esc(m)).join(', ')}${(p.missing || []).length > 3 ? `, ещё ${p.missing.length - 3}…` : ''}</li>`;
+            }
+            html += '</ul>';
+          }
+          html += '</div>';
+          list.innerHTML = html;
+          return;
+        }
+        sel.innerHTML = '<option value="">— выбери книгу —</option>';
+        for (const book of d.books) {
+          const opt = document.createElement("option");
+          opt.value = book.book_id;
+          opt.textContent = `${book.book_title || book.book_id} (${book.chapter_count} глав, все проверены)`;
+          sel.appendChild(opt);
+        }
+        sel.addEventListener("change", () => renderChapters(sel.value));
+      } catch (e) {
+        document.getElementById("bookSelect").innerHTML = '<option>Ошибка загрузки</option>';
+      }
+    }
+
+    function renderChapters(bookId) {
+      const list = document.getElementById("chaptersList");
+      if (!bookId) { list.innerHTML = '<div style="color:var(--color-text-muted)">Выбери книгу</div>'; return; }
+      const book = (TOC.books || []).find(b => b.book_id === bookId);
+      if (!book || !book.chapters?.length) {
+        list.innerHTML = '<div style="color:var(--color-text-muted)">Главы не найдены</div>';
+        return;
+      }
+      list.innerHTML = book.chapters.map(ch => {
+        const numLabel = (ch.number != null && ch.number !== 0) ? `Гл.${ch.number}` : (ch.number === 0 ? 'Введение' : '');
+        const score = ch.last_score;
+        const scoreColor = score == null ? 'var(--color-text-muted)' :
+                           score >= 80 ? 'var(--color-success)' :
+                           score >= 60 ? 'var(--color-warning)' : 'var(--color-danger)';
+        const scoreLabel = score != null ? `<span style="margin-left:8px;font-family:var(--font-mono);font-size:11px;color:${scoreColor};font-weight:700">${score}/100</span>` : '';
+        return `
+          <label>
+            <input type="checkbox" value="${esc(ch.chapter_id)}" checked>
+            <span>${numLabel ? `<strong style="color:var(--color-text-muted)">${esc(numLabel)}</strong> · ` : ''}${esc(ch.title || ch.chapter_id)}${scoreLabel}</span>
+          </label>
+        `;
+      }).join('');
+    }
+
+    async function runBookEditor() {
+      const bookId = document.getElementById("bookSelect").value;
+      if (!bookId) { alert("Выбери книгу"); return; }
+      const checked = Array.from(document.querySelectorAll('#chaptersList input[type=checkbox]:checked')).map(c => c.value);
+      if (checked.length === 0) { alert("Выбери хотя бы одну главу"); return; }
+      const target = parseInt(document.getElementById("targetScore").value) || 80;
+      const maxIter = parseInt(document.getElementById("maxIterations").value) || 3;
+
+      const status = document.getElementById("runStatus");
+      status.style.display = "block";
+      status.innerHTML = `<div class="page-section">
+        <strong>Запущен Редактор Книги</strong>
+        <div class="page-sub" style="margin-top:var(--space-xs)">${esc(bookId)} · ${checked.length} глав · target ≥ ${target} · max ${maxIter} итераций</div>
+        <div style="margin-top:var(--space-md);font-family:var(--font-mono);font-size:var(--font-size-caption);color:var(--color-text-muted)">
+          Stage 1: Хранитель Памяти (карта книги)…<br>
+          Stage 2: Детектор Повторений + Стилевой + Архитектор (параллельно)…<br>
+          Stage 3: Синтез Книги (финальный план)…<br>
+          ~10-20 минут на одну итерацию.
+        </div>
+      </div>`;
+
+      try {
+        const r = await fetch("/api/book-editor/run", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({book_id: bookId, chapter_ids: checked, target_score: target, max_iterations: maxIter}),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          status.innerHTML += `<div class="page-section">Запущено PID ${d.pid}. Результат: <code>${esc(d.session_path)}</code></div>`;
+          setTimeout(loadSessions, 3000);
+        } else {
+          status.innerHTML += `<div class="page-section" style="color:var(--color-danger)">Ошибка: ${esc(d.error || "?")}</div>`;
+        }
+      } catch (e) {
+        status.innerHTML += `<div style="color:var(--color-danger)">Сеть: ${esc(e.message)}</div>`;
+      }
+    }
+
+    async function loadSessions() {
+      try {
+        const r = await fetch("/api/book-editor/sessions");
+        const d = await r.json();
+        const list = document.getElementById("sessionsList");
+        if (!d.sessions || d.sessions.length === 0) {
+          list.innerHTML = '<div style="color:var(--color-text-muted)">Сессий пока нет.</div>';
+          return;
+        }
+        list.innerHTML = d.sessions.map(s => {
+          const score = s.book_overall_score;
+          const cls = score >= 80 ? 'high' : score >= 60 ? 'mid' : 'low';
+          return `
+            <div class="session-row">
+              <div>
+                <strong>${esc(s.book_title || s.book_id)}</strong>
+                <span style="color:var(--color-text-muted);font-family:var(--font-mono);font-size:var(--font-size-caption);margin-left:var(--space-sm)">
+                  ${esc(s.session_id)} · ${s.chapter_count} глав · итерация ${s.iteration || 1}
+                </span>
+              </div>
+              <div>
+                ${score != null ? `<span class="score-pill ${cls}">${score}/100</span>` : ''}
+                <a href="/api/book-editor/sessions/${esc(s.session_id)}" target="_blank" style="margin-left:var(--space-sm);color:var(--color-accent)">Открыть</a>
+              </div>
+            </div>`;
+        }).join('');
+      } catch (e) {
+        document.getElementById("sessionsList").innerHTML = `<div style="color:var(--color-danger)">${esc(e.message)}</div>`;
+      }
+    }
+
+    loadBots();
+    loadToc();
+    loadSessions();
+  </script>
+</body>
+</html>

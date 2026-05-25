@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Критики · Кодекс v2</title>
+  <link rel="preconnect" href="https://rsms.me/">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .critic-group-section {
+      margin-bottom: var(--space-2xl);
+    }
+    .critic-group-title {
+      font-size: var(--font-size-h2);
+      font-weight: var(--font-weight-bold);
+      margin: 0 0 var(--space-md);
+      color: var(--color-text-primary);
+    }
+    .critic-group-sub {
+      font-size: var(--font-size-small);
+      color: var(--color-text-muted);
+      margin: 0 0 var(--space-lg);
+    }
+    .critic-card {
+      background: var(--color-bg-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: var(--space-xl);
+      margin-bottom: var(--space-lg);
+      transition: border-color var(--transition-fast);
+    }
+    .critic-card.disabled {
+      opacity: 0.55;
+      background: var(--color-bg-subtle);
+    }
+    .critic-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-md);
+      margin-bottom: var(--space-md);
+    }
+    .critic-label {
+      font-size: var(--font-size-h3);
+      font-weight: var(--font-weight-semibold);
+      color: var(--color-text-primary);
+      margin: 0;
+    }
+    .critic-id {
+      font-family: var(--font-mono);
+      font-size: var(--font-size-caption);
+      color: var(--color-text-muted);
+    }
+    .critic-meta {
+      display: flex;
+      gap: var(--space-md);
+      font-size: var(--font-size-small);
+      color: var(--color-text-muted);
+      margin-bottom: var(--space-md);
+      flex-wrap: wrap;
+    }
+    .critic-meta strong { color: var(--color-text-primary); font-weight: var(--font-weight-medium); }
+    .critic-prompt-label {
+      font-size: var(--font-size-caption);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--color-text-muted);
+      margin-bottom: var(--space-xs);
+    }
+    .critic-prompt {
+      width: 100%;
+      min-height: 180px;
+      padding: var(--space-md);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-bg-subtle);
+      font-family: var(--font-mono);
+      font-size: var(--font-size-small);
+      line-height: var(--line-height-relaxed);
+      color: var(--color-text-primary);
+      resize: vertical;
+    }
+    .critic-prompt:focus {
+      outline: none;
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-accent-soft);
+    }
+    .toggle-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-sm);
+      cursor: pointer;
+      user-select: none;
+    }
+    .toggle-switch input { display: none; }
+    .toggle-track {
+      width: 36px;
+      height: 20px;
+      background: var(--color-border-strong);
+      border-radius: var(--radius-full);
+      position: relative;
+      transition: background var(--transition-fast);
+    }
+    .toggle-track::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      background: white;
+      border-radius: 50%;
+      transition: transform var(--transition-fast);
+    }
+    .toggle-switch input:checked + .toggle-track { background: var(--color-accent); }
+    .toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); }
+    .toggle-label { font-size: var(--font-size-small); color: var(--color-text-secondary); }
+    .critics-actions-row {
+      display: flex;
+      gap: var(--space-sm);
+      margin-bottom: var(--space-xl);
+      flex-wrap: wrap;
+    }
+    .test-result {
+      margin-top: var(--space-md);
+      padding: var(--space-md);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-bg-subtle);
+      font-family: var(--font-mono);
+      font-size: var(--font-size-caption);
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .weights-block {
+      display: grid;
+      grid-template-columns: 1fr 80px;
+      gap: var(--space-sm) var(--space-md);
+      padding: var(--space-md);
+      background: var(--color-bg-subtle);
+      border-radius: var(--radius-md);
+      margin: var(--space-md) 0;
+      font-size: var(--font-size-small);
+    }
+    .weights-block input {
+      padding: 4px 8px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: var(--font-size-small);
+      width: 70px;
+    }
+    .eligible-chapter {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-md);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      margin-bottom: var(--space-sm);
+    }
+  </style>
+</head>
+<body class="hide-ui-codes">
+  <div class="app">
+    <aside class="sidebar" id="appSidebar" data-page="critics"></aside>
+    <main class="page">
+      <header class="page-head">
+        <div>
+          <h1>Критики</h1>
+          <p class="page-sub">15 критиков в 3 группах. Pavel правит логику и веса. Запуск только на обработанных главах.</p>
+        </div>
+      </header>
+      <div class="page-body">
+
+        <div class="critics-actions-row">
+          <button class="btn btn-primary btn-sm" onclick="saveAll()">Сохранить изменения</button>
+          <button class="btn btn-secondary btn-sm" onclick="resetDefaults()">Сбросить к умолчанию</button>
+        </div>
+
+        <!-- UC-123: Глобальные параметры качества -->
+        <section class="page-section" style="background: var(--color-card); border: 1px solid var(--color-card-border); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+          <h2 class="critic-group-title">🎯 Глобальные параметры качества</h2>
+          <p class="critic-group-sub">Pavel: «80 проходной балл, ближе к 100 шедевр». Эти пороги используются везде — в badge, до 100%, AI-detection.</p>
+          <div id="qualityConfigBox" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 12px;">
+            <div class="loading">Загружаю…</div>
+          </div>
+          <div style="margin-top: 12px;">
+            <button class="btn btn-primary btn-sm" id="saveQualityBtn">Сохранить параметры</button>
+          </div>
+        </section>
+
+        <section class="page-section">
+          <h2 class="critic-group-title">Доступные для проверки главы</h2>
+          <p class="critic-group-sub">Только обработанные (finalized или iterations). Pavel: «как мы можем главу не отработанную отдавать критикам».</p>
+          <div id="eligibleChapters"><div class="loading">Сканирую…</div></div>
+        </section>
+
+        <div id="testResult" class="test-result" style="display:none"></div>
+
+        <div class="critic-group-section">
+          <h2 class="critic-group-title">Технические критики</h2>
+          <p class="critic-group-sub">Ткань текста: голос, AI-следы, ритм, лексика, архитектура, начало/конец.</p>
+          <div id="critics-technical"></div>
+        </div>
+
+        <div class="critic-group-section">
+          <h2 class="critic-group-title">Совет старцев</h2>
+          <p class="critic-group-sub">Регистр и глубина: Толстой, Юнг, Маккена, дон Хуан, Иоанн, Лао-цзы.</p>
+          <div id="critics-council"></div>
+        </div>
+
+        <div class="critic-group-section">
+          <h2 class="critic-group-title">Финальные</h2>
+          <p class="critic-group-sub">Целостное воздействие: читательский резонанс и synthesis (дирижёр собора с весами).</p>
+          <div id="critics-final"></div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/nav.js"></script>
+  <script>
+    let CRITICS = null;
+
+    function esc(s) {
+      return String(s || "").replace(/[&<>"']/g, c =>
+        ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    }
+
+    async function loadCritics() {
+      try {
+        const r = await fetch("/api/critics");
+        CRITICS = await r.json();
+        render();
+      } catch (e) {
+        document.getElementById("critics-technical").innerHTML =
+          `<div class="error-box">Ошибка: ${esc(e.message)}</div>`;
+      }
+    }
+
+    /* UC-123: глобальные параметры качества */
+    let QUALITY = {};
+    const QUALITY_FIELDS = [
+      ["target_masterpiece", "🏆 Шедевр (≥)", 95],
+      ["target_passing", "✅ Проход (≥)", 80],
+      ["target_rework", "⚠️ Доработать (≥)", 60],
+      ["ai_threshold_warn", "🤔 AI: сомнительно (≥%)", 35],
+      ["ai_threshold_danger", "⚠️ AI: явно (≥%)", 60],
+      ["voice_min_fidelity_pct", "🎙️ Voice fidelity мин %", 70],
+      ["density_min_ok_axes", "📏 Density min ok-осей", 2],
+      ["model", "🤖 Модель Opus", "claude-opus-4-7"],
+    ];
+    async function loadQuality() {
+      try {
+        const r = await fetch("/api/quality-config");
+        QUALITY = await r.json();
+        renderQuality();
+      } catch (e) {
+        document.getElementById("qualityConfigBox").innerHTML = "<div class='error-box'>" + e.message + "</div>";
+      }
+    }
+    function renderQuality() {
+      const box = document.getElementById("qualityConfigBox");
+      box.innerHTML = QUALITY_FIELDS.map(function(f) {
+        const k = f[0], lbl = f[1], def = f[2];
+        const v = QUALITY[k] != null ? QUALITY[k] : def;
+        const isText = typeof def === "string";
+        return '<div><label style="display:block;font-size:11px;color:var(--color-text-muted);margin-bottom:4px;font-weight:600">' + esc(lbl) + '</label>'
+             + '<input type="' + (isText ? 'text' : 'number') + '" value="' + esc(String(v)) + '"'
+             + ' data-key="' + esc(k) + '" oninput="QUALITY[this.dataset.key] = this.value;"'
+             + ' style="width:100%;padding:6px 10px;border:1px solid var(--color-border);border-radius:6px;font-family:inherit;font-size:14px;"></div>';
+      }).join("");
+    }
+    async function saveQuality() {
+      /* нормализуем числа */
+      const payload = {};
+      QUALITY_FIELDS.forEach(function(f) {
+        const k = f[0], def = f[2];
+        const v = QUALITY[k] != null ? QUALITY[k] : def;
+        if (typeof def === "number") payload[k] = parseFloat(v) || def;
+        else payload[k] = String(v);
+      });
+      try {
+        const r = await fetch("/api/quality-config/save", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload)
+        });
+        const d = await r.json();
+        alert(d.ok ? "Сохранено." : ("Ошибка: " + (d.error || "?")));
+      } catch (e) { alert("Сеть: " + e.message); }
+    }
+    document.addEventListener("DOMContentLoaded", function() {
+      const btn = document.getElementById("saveQualityBtn");
+      if (btn) btn.addEventListener("click", saveQuality);
+      loadQuality();
+    });
+
+    function renderCriticCard(id, c) {
+      const isSynthesis = id === "synthesis";
+      const weightsHtml = isSynthesis && c.weights ? `
+        <div class="critic-prompt-label">Веса для финального балла (Pavel правит)</div>
+        <div class="weights-block">
+          ${Object.entries(c.weights).map(([k, v]) => `
+            <span>${esc(k)}</span>
+            <input type="number" min="0" max="1" step="0.05" value="${v}"
+                   onchange="updateWeight('${esc(id)}', '${esc(k)}', this.value)" />
+          `).join('')}
+        </div>` : '';
+      return `
+        <div class="critic-card ${c.enabled ? '' : 'disabled'}" data-id="${esc(id)}">
+          <div class="critic-head">
+            <div>
+              <h3 class="critic-label">${esc(c.label || id)}</h3>
+              <span class="critic-id">${esc(id)}</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" ${c.enabled ? 'checked' : ''}
+                onchange="toggleCritic('${esc(id)}', this.checked)"/>
+              <span class="toggle-track"></span>
+              <span class="toggle-label">${c.enabled ? 'Включён' : 'Выключен'}</span>
+            </label>
+          </div>
+          <div class="critic-meta">
+            <span><strong>Модель:</strong> ${esc(c.model || '?')}</span>
+            <span><strong>Thinking:</strong> ${c.thinking_budget || 0} tokens</span>
+            <span><strong>Контекст:</strong> ${
+              c.context_mode === 'global_context' ? 'весь Кодекс' :
+              c.context_mode === 'chapter_plus_other_critics' ? 'глава + результаты критиков' :
+              'только глава'}</span>
+          </div>
+          <div class="critic-prompt-label">Логика (system prompt)</div>
+          <textarea class="critic-prompt" oninput="updatePrompt('${esc(id)}', this.value)">${esc(c.system)}</textarea>
+          ${weightsHtml}
+        </div>`;
+    }
+
+    function render() {
+      const groups = { technical: [], council: [], final: [] };
+      Object.entries(CRITICS).forEach(([id, c]) => {
+        const g = c.group || 'technical';
+        if (groups[g]) groups[g].push([id, c]);
+      });
+      ['technical', 'council', 'final'].forEach(g => {
+        const container = document.getElementById(`critics-${g}`);
+        if (!container) return;
+        container.innerHTML = groups[g].map(([id, c]) => renderCriticCard(id, c)).join('');
+      });
+    }
+
+    function toggleCritic(id, enabled) {
+      CRITICS[id].enabled = enabled;
+      const card = document.querySelector(`.critic-card[data-id="${id}"]`);
+      if (card) card.classList.toggle("disabled", !enabled);
+      const label = card?.querySelector(".toggle-label");
+      if (label) label.textContent = enabled ? "Включён" : "Выключен";
+    }
+
+    function updatePrompt(id, value) {
+      CRITICS[id].system = value;
+    }
+
+    function updateWeight(id, key, value) {
+      if (!CRITICS[id].weights) CRITICS[id].weights = {};
+      CRITICS[id].weights[key] = parseFloat(value) || 0;
+    }
+
+    async function saveAll() {
+      try {
+        const r = await fetch("/api/critics", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(CRITICS),
+        });
+        const d = await r.json();
+        alert(d.ok ? "Сохранено." : ("Ошибка: " + (d.error || "?")));
+      } catch (e) { alert("Сеть: " + e.message); }
+    }
+
+    async function resetDefaults() {
+      if (!confirm("Сбросить ВСЕХ критиков к defaults? Текущие правки пропадут.")) return;
+      try {
+        const r = await fetch("/api/critics/reset", { method: "POST" });
+        const d = await r.json();
+        if (d.ok) {
+          CRITICS = d.critics;
+          render();
+          alert("Сброшено.");
+        } else { alert("Ошибка: " + (d.error || "?")); }
+      } catch (e) { alert("Сеть: " + e.message); }
+    }
+
+    async function loadEligibleChapters() {
+      try {
+        const r = await fetch("/api/critics/eligible-chapters");
+        const d = await r.json();
+        const list = document.getElementById("eligibleChapters");
+        if (!d.chapters || d.chapters.length === 0) {
+          list.innerHTML = `<div style="padding:var(--space-md);color:var(--color-text-muted)">
+            Нет глав в проекте. Создай в <a href="/wizard" style="color:var(--color-accent)">Новая глава</a> или импортируй.
+          </div>`;
+          return;
+        }
+        // Group by book
+        const byBook = {};
+        d.chapters.forEach(c => {
+          const k = c.book_title || c.chapter_id.split('-ch-')[0];
+          (byBook[k] = byBook[k] || []).push(c);
+        });
+        const statusBadge = (c) => {
+          if (c.is_finalized) return '<span style="background:var(--color-success-soft);color:var(--color-success);padding:2px 8px;border-radius:var(--radius-full);font-size:11px;font-weight:600">финал</span>';
+          if (c.iterations_count) return `<span style="background:var(--color-accent-soft);color:var(--color-accent-text);padding:2px 8px;border-radius:var(--radius-full);font-size:11px;font-weight:600">workshop ${c.iterations_count}</span>`;
+          return '<span style="background:var(--color-bg-muted);color:var(--color-text-secondary);padding:2px 8px;border-radius:var(--radius-full);font-size:11px;font-weight:600">обработана</span>';
+        };
+        const scoreBadge = (c) => {
+          if (c.last_score == null) return '';
+          const cls = c.last_score >= 80 ? 'high' : c.last_score >= 60 ? 'mid' : 'low';
+          const color = c.last_score >= 80 ? 'var(--color-success)' : c.last_score >= 60 ? 'var(--color-warning)' : 'var(--color-danger)';
+          return `<span style="margin-left:8px;font-family:var(--font-mono);font-size:11px;color:${color};font-weight:700">${c.last_score}/100</span>`;
+        };
+        list.innerHTML = Object.entries(byBook).map(([book, chs]) => `
+          <div style="margin-bottom:var(--space-md)">
+            <div style="font-size:var(--font-size-caption);text-transform:uppercase;letter-spacing:var(--tracking-wide);color:var(--color-text-muted);font-weight:var(--font-weight-semibold);margin:var(--space-md) 0 var(--space-xs)">${esc(book)} <span style="color:var(--color-text-muted);font-weight:400;text-transform:none;letter-spacing:0">· ${chs.length} глав</span></div>
+            ${chs.map(c => {
+              const numLabel = (c.number != null && c.number !== 0) ? `Гл.${c.number}` : (c.number === 0 ? 'Введение' : '');
+              const displayTitle = c.title || c.chapter_id;
+              return `
+              <div class="eligible-chapter" style="${c.is_eligible ? '' : 'opacity:0.55;background:var(--color-bg-subtle)'}">
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:var(--font-weight-semibold);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    ${numLabel ? `<span style="color:var(--color-text-muted);font-weight:var(--font-weight-medium)">${esc(numLabel)}</span>` : ''}
+                    <span>${esc(displayTitle)}</span>
+                    ${statusBadge(c)} ${scoreBadge(c)}
+                  </div>
+                  <div style="font-size:var(--font-size-caption);color:var(--color-text-muted);margin-top:2px">
+                    <span style="font-family:var(--font-mono)">${esc(c.chapter_id)}</span>
+                    ${c.processing_marks && c.processing_marks.length ? ' · ' + c.processing_marks.map(esc).join(', ') : ''}
+                    ${c.last_critique_at ? ` · последняя проверка ${esc(c.last_critique_at)}` : ' · не проверялась'}
+                  </div>
+                </div>
+                <button class="btn btn-primary btn-sm" ${c.is_eligible ? '' : 'disabled title="' + esc(c.not_ready_reason || 'не готово') + '"'}
+                        onclick="runCritics('${esc(c.chapter_id)}', this)">Запустить критиков</button>
+              </div>
+            `;}).join('')}
+          </div>
+        `).join('');
+      } catch (e) {
+        document.getElementById("eligibleChapters").innerHTML =
+          `<div style="color:var(--color-danger)">Ошибка: ${esc(e.message)}</div>`;
+      }
+    }
+
+    async function runCritics(chapterId, btn) {
+      const out = document.getElementById("testResult");
+      out.style.display = "block";
+      out.textContent = `Запускаю включённых критиков на ${chapterId}…\nКаждый ~1-3 мин, synthesis в конце соберёт всё.`;
+      btn.disabled = true;
+      btn.textContent = "Запущено…";
+      try {
+        const r = await fetch("/api/critics/run", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({chapter_id: chapterId, with_global: true}),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          out.textContent = `Запущено PID ${d.pid}.\nОтчёт: ${d.report_path}\n\nЖди 5-15 минут (15 критиков × ~1 мин).`;
+          btn.textContent = `PID ${d.pid}`;
+        } else {
+          out.textContent = "Ошибка: " + (d.error || "?");
+          btn.disabled = false;
+          btn.textContent = "Запустить всех критиков";
+        }
+      } catch (e) {
+        out.textContent = "Сеть: " + e.message;
+        btn.disabled = false;
+        btn.textContent = "Запустить всех критиков";
+      }
+    }
+
+    loadCritics();
+    loadEligibleChapters();
+  </script>
+</body>
+</html>

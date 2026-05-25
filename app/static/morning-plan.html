@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Утренний план · Кодекс v2</title> <link rel="stylesheet" href="/static/style.css"> <style> /* UC-70 (Pavel 2026-05-21): Брифинг тоже сделан криво, чиним. - Карточка на полную ширину (max-width 1100px) - h1 размер 28px вместо 32px (для контента внутри карточки) - h2/h3 уменьшены - Отступы сокращены вдвое - hr тонкая серая линия */ .plan-wrap { max-width: 1100px; background: var(--color-card); border: 1px solid var(--color-card-border); border-radius: var(--radius-lg); padding: var(--space-8); line-height: var(--leading-relaxed); font-family: var(--font-sans); } .plan-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-divider); } .plan-meta-info { color: var(--color-text-muted); font-size: var(--font-size-caption); } .plan-actions { display: flex; gap: var(--space-2); } /* Markdown rendering, sans-serif всегда, размеры разумные */ .md h1, .md h2, .md h3, .md h4 { font-family: var(--font-sans); color: var(--color-text); font-weight: var(--font-weight-semibold); letter-spacing: -0.01em; line-height: var(--leading-tight); } .md h1 { font-size: 24px; margin: 0 0 var(--space-4); font-weight: var(--font-weight-bold); } .md h2 { font-size: 20px; margin: var(--space-6) 0 var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-divider); } .md h3 { font-size: 17px; margin: var(--space-4) 0 var(--space-2); } .md h4 { font-size: 15px; margin: var(--space-3) 0 var(--space-2); color: var(--color-text-secondary); } .md p { margin: 0 0 var(--space-3); color: var(--color-text); } .md strong { font-weight: var(--weight-bold); color: var(--color-text); } .md em { font-style: italic; } .md ul, .md ol { margin: 0 0 var(--space-4); padding-left: var(--space-6); } .md li { margin: var(--space-1) 0; } .md code { background: var(--color-divider); padding: 2px 6px; border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 0.92em; color: var(--color-text); } .md pre { background: var(--color-bg); border: 1px solid var(--color-card-border); padding: var(--space-4); border-radius: var(--radius-md); overflow-x: auto; font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.5; margin: 0 0 var(--space-4); } .md pre code { background: transparent; padding: 0; } .md blockquote { border-left: 4px solid var(--color-accent); padding-left: var(--space-4); margin: var(--space-4) 0; color: var(--color-text-2); font-style: italic; } .md a { color: var(--color-accent); text-decoration: underline; } .md hr { border: none; border-top: 1px solid var(--color-border); margin: var(--space-5) 0; } .md table { border-collapse: collapse; margin: var(--space-4) 0; width: 100%; font-size: var(--text-sm); } .md th, .md td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-divider); text-align: left; } .md th { font-weight: var(--weight-semibold); color: var(--color-text-2); background: var(--color-bg); } .updating { display: inline-flex; align-items: center; gap: 6px; color: var(--color-accent); font-size: var(--text-sm); } .updating::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--color-accent); animation: pulse 1.4s ease-in-out infinite; } @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } } </style>
+</head>
+<body> <div class="app"> <aside class="sidebar" id="appSidebar" data-page="briefing"></aside> <script src="/static/nav.js"></script> <main class="main"> <header class="page-header"> <h1 class="page-title">Утренний план, путь к шедевру</h1> <p class="page-subtitle">Синтез всего что наработалось ночью: корпус, fidelity, research, уроки прошлого.</p> </header> <div class="plan-wrap"> <div class="plan-meta"> <div class="plan-meta-info" id="meta">Загружаю...</div> <div class="plan-actions"> <button class="btn btn-secondary btn-sm" id="refreshBtn">Перечитать с диска</button> <button class="btn btn-primary btn-sm" id="updateBtn">Перегенерировать сейчас</button> </div> </div> <div class="md" id="content">Загружаю отчёт...</div> </div> <footer class="page-footer"> Файл на диске: <code>~/Desktop/Codex2/reports/MORNING-PLAN.md</code> </footer> </main> </div> <!-- Toast (стандарт из index.html) --> <script>
+ function toast(msg, ms = 3000) {
+   let c = document.querySelector(".toast-container");
+   if (!c) {
+     c = document.createElement("div");
+     c.className = "toast-container";
+     document.body.appendChild(c);
+   }
+   const el = document.createElement("div");
+   el.className = "toast";
+   el.textContent = msg;
+   c.appendChild(el);
+   setTimeout(() => {
+     el.classList.add("fade");
+     setTimeout(() => el.remove(), 200);
+   }, ms);
+ }
+</script> <style> .toast-container { position: fixed; bottom: var(--space-6); right: var(--space-6); z-index: var(--z-toast); display: flex; flex-direction: column; gap: var(--space-2); pointer-events: none; } .toast { background: var(--color-text); color: var(--color-text-inverse); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); font-size: var(--text-sm); box-shadow: var(--shadow-md); max-width: 320px; animation: toast-in 280ms ease; pointer-events: auto; } @keyframes toast-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } } .toast.fade { animation: toast-out 200ms ease forwards; } @keyframes toast-out { to { opacity: 0; transform: translateY(20px); } } </style> <script>
+  /* ─── Простой markdown → HTML ────────────────────────── */
+  function escape(s) {
+    return String(s).replace(/[&<>]/g, c => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;"
+    } [c]));
+  }
+
+  function renderMd(md) {
+    const lines = md.split("\n");
+    let html = "";
+    let inCode = false,
+      inList = false,
+      listType = "ul",
+      inTable = false;
+    let tableHeader = false;
+    const inlineFmt = (s) => {
+      s = escape(
+      s); /* Bold **text** s = s.replace(/\*\*([^*]+)\*\* /g, "<strong>$1</strong>"); // Italic *text* s = s.replace(/(^|[^*])\*([^*\n]+)\*([^*]|$)/g, "$1<em>$2</em>$3"); // Inline code `text` s = s.replace(/`([^`]+)`/g, "<code>$1</code>"); // Links [text](url) s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>'); */
+      return s;
+    };
+    const closeList = () => {
+      if (inList) {
+        html += `</${listType}>\n`;
+        inList = false;
+      }
+    };
+    const closeTable = () => {
+      if (inTable) {
+        html += "</tbody></table>\n";
+        inTable = false;
+        tableHeader = false;
+      }
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]; /* Code fence */
+      if (line.startsWith("```")) {
+        closeList();
+        closeTable();
+        if (inCode) {
+          html += "</code></pre>\n";
+          inCode = false;
+        } else {
+          html += '<pre><code>';
+          inCode = true;
+        }
+        continue;
+      }
+      if (inCode) {
+        html += escape(line) + "\n";
+        continue;
+      } /* Headers */
+      const h = line.match(/^(#{1,4})\s+(.+)$/);
+      if (h) {
+        closeList();
+        closeTable();
+        const level = h[1].length;
+        html += `<h${level}>${inlineFmt(h[2])}</h${level}>\n`;
+        continue;
+      } /* Horizontal rule */
+      if (/^[\-=*]{3,}$/.test(line.trim())) {
+        closeList();
+        closeTable();
+        html += "<hr>\n";
+        continue;
+      } /* Tables */
+      if (/^\|.*\|$/.test(line.trim())) {
+        closeList();
+        if (!inTable) {
+          html += '<table><thead><tr>';
+          const cells = line.trim().slice(1, -1).split("|").map(c => c.trim());
+          for (const c of cells) html += `<th>${inlineFmt(c)}</th>`;
+          html += '</tr></thead><tbody>';
+          inTable = true;
+          tableHeader = true;
+          continue;
+        }
+        if (tableHeader && /^\|[\s\-:|]+\|$/.test(line.trim())) {
+          tableHeader = false;
+          continue;
+        }
+        html += '<tr>';
+        const cells = line.trim().slice(1, -1).split("|").map(c => c.trim());
+        for (const c of cells) html += `<td>${inlineFmt(c)}</td>`;
+        html += '</tr>';
+        continue;
+      } /* Blockquote */
+      if (line.startsWith("> ")) {
+        closeList();
+        closeTable();
+        html += `<blockquote>${inlineFmt(line.slice(2))}</blockquote>\n`;
+        continue;
+      } /* Unordered list */
+      const ul = line.match(/^(\s*)[-*]\s+(.+)$/);
+      if (ul) {
+        closeTable();
+        if (!inList || listType !== "ul") {
+          closeList();
+          html += "<ul>\n";
+          inList = true;
+          listType = "ul";
+        }
+        html += `<li>${inlineFmt(ul[2])}</li>\n`;
+        continue;
+      } /* Ordered list */
+      const ol = line.match(/^(\s*)\d+\.\s+(.+)$/);
+      if (ol) {
+        closeTable();
+        if (!inList || listType !== "ol") {
+          closeList();
+          html += "<ol>\n";
+          inList = true;
+          listType = "ol";
+        }
+        html += `<li>${inlineFmt(ol[2])}</li>\n`;
+        continue;
+      } /* Blank line ends list/table */
+      if (line.trim() === "") {
+        closeList();
+        closeTable();
+        continue;
+      }
+      closeList();
+      closeTable();
+      html += `<p>${inlineFmt(line)}</p>\n`;
+    }
+    closeList();
+    closeTable();
+    if (inCode) html += "</code></pre>";
+    return html;
+  }
+
+  function fmtDate(ts) {
+    const d = new Date(ts * 1000);
+    const months = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getHours()}:${String(d.getMinutes()).padStart(2,"0")}`;
+  }
+  async function loadPlan() {
+    document.getElementById("content").textContent = "Загружаю...";
+    try {
+      const r = await fetch("/api/morning-plan?ts=" + Date.now());
+      const d = await r.json();
+      if (!d.exists) {
+        document.getElementById("meta").textContent = "Отчёт ещё не сгенерирован";
+        document.getElementById("content").innerHTML =
+          `<p>${d.message}</p><p>Нажми <strong>Перегенерировать сейчас</strong> чтобы создать его.</p>`;
+        return;
+      }
+      document.getElementById("meta").innerHTML =
+        `Обновлено: <strong>${fmtDate(d.mtime)}</strong> · ${(d.size / 1024).toFixed(1)} КБ`;
+      document.getElementById("content").innerHTML = renderMd(d.content);
+    } catch (e) {
+      document.getElementById("content").innerHTML = `<p style="color:var(--color-danger)">Ошибка: ${e.message}</p>`;
+    }
+  }
+  document.getElementById("refreshBtn").onclick = () => {
+    loadPlan();
+    toast("Перечитал с диска");
+  };
+  async function pollUntilDone(initialMtime, btn) {
+    const start = Date.now();
+    const maxWait = 5 * 60 * 1000; /* 5 минут */
+    let lastStatusText = "";
+    while (Date.now() - start < maxWait) {
+      await new Promise(r => setTimeout(r, 3000));
+      const elapsed = Math.round((Date.now() - start) / 1000); /* Проверка статуса процесса */
+      const sr = await fetch("/api/morning-plan/status?ts=" + Date.now());
+      const s = await sr.json(); /* Проверка mtime */
+      const pr = await fetch("/api/morning-plan?ts=" + Date.now());
+      const p = await pr.json();
+      if (p.exists && p.mtime > initialMtime) {
+        /* Готово! btn.innerHTML = "Обновлён"; */
+        await loadPlan();
+        toast("Morning plan обновлён через " + elapsed + " сек");
+        return true;
+      }
+      const statusText = s.running ? `работает ${elapsed}s` : `жду генератор ${elapsed}s`;
+      if (statusText !== lastStatusText) {
+        btn.innerHTML = '<span class="updating">' + statusText + '</span>';
+        lastStatusText = statusText;
+      }
+      if (!s.running && elapsed > 10) {
+        /* Процесс завершился но mtime не обновился, что-то не так */
+        await loadPlan();
+        toast("Генератор завершился, mtime не изменился. Смотри ~/Desktop/Codex2/.codex/morning-plan-gen.log", 8000);
+        return false;
+      }
+    }
+    toast("Тайм-аут 5 мин. Запусти руками: python3 ~/Desktop/Codex2/scripts/morning_plan_generator.py", 8000);
+    return false;
+  }
+  document.getElementById("updateBtn").onclick = async () => {
+    const btn = document.getElementById("updateBtn");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="updating">запускаю...</span>';
+    try {
+      /* Запоминаем текущий mtime */
+      const before = await (await fetch("/api/morning-plan?ts=" + Date.now())).json();
+      const initialMtime = before.exists ? before.mtime : 0; /* Запускаем */
+      const r = await fetch("/api/morning-plan/regenerate", {
+        method: "POST"
+      });
+      const d = await r.json();
+      if (!d.ok) {
+        toast("Не запустилось: " + (d.error || "unknown"), 6000);
+        btn.disabled = false;
+        btn.innerHTML = 'Перегенерировать сейчас';
+        return;
+      }
+      if (d.already_running) {
+        toast("Генератор уже работает (PID " + d.pid + "), жду финиша");
+      } else {
+        toast("Запущен в фоне (PID " + d.pid + ", Opus 4.7 + thinking 12K)");
+      } /* Polling */
+      await pollUntilDone(initialMtime, btn);
+    } catch (e) {
+      toast("Сеть: " + e.message, 6000);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = 'Перегенерировать сейчас';
+    }
+  };
+  loadPlan();
+</script> <script src="/static/sidebar.js"></script>
+</body>
+</html>

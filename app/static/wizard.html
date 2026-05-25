@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Новая глава · Codex v2</title>
+<link rel="preconnect" href="https://rsms.me/">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .wizard-layout {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: var(--space-6) var(--space-8) var(--space-12);
+  }
+
+  /* Step indicator */
+  .step-indicator {
+    display: flex;
+    gap: var(--space-2);
+    margin-bottom: var(--space-8);
+    padding: var(--space-3) 0;
+  }
+  .step-indicator-item {
+    flex: 1;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+  }
+  .step-indicator-item:hover { opacity: 0.8; }
+  .step-indicator-item.active { opacity: 1; }
+  .step-indicator-item.done { opacity: 0.85; }
+  .step-indicator-item.disabled { cursor: not-allowed; opacity: 0.35; }
+  .step-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--color-border);
+    transition: background 0.2s;
+  }
+  .step-indicator-item.active .step-bar { background: var(--color-accent); }
+  .step-indicator-item.done .step-bar { background: var(--color-success); }
+  .step-label {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    font-weight: var(--font-weight-medium);
+  }
+  .step-indicator-item.active .step-label { color: var(--color-accent); }
+  .step-indicator-item.done .step-label { color: var(--color-success); }
+  .step-num { font-weight: var(--font-weight-semibold); margin-right: 4px; }
+
+  /* Steps */
+  .wizard-step { display: none; }
+  .wizard-step.visible { display: block; }
+  .wizard-step h2 {
+    font-size: 20px;
+    font-weight: var(--font-weight-bold);
+    margin: 0 0 var(--space-2);
+    letter-spacing: -0.018em;
+    color: var(--color-text-primary);
+  }
+  .wizard-step h3 {
+    font-size: 17px;
+    font-weight: var(--font-weight-semibold);
+    margin: var(--space-4) 0 var(--space-2);
+    color: var(--color-text-primary);
+  }
+  .wizard-step .step-sub {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-5);
+    line-height: 1.6;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: var(--space-4);
+  }
+  .field label {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    font-weight: var(--font-weight-medium);
+  }
+  .field input,
+  .field textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: inherit;
+    font-size: var(--text-md);
+    line-height: 1.5;
+    border: 1px solid var(--color-card-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--color-bg-app);
+    color: var(--color-text);
+    resize: vertical;
+  }
+  .field input { height: 36px; padding: 0 12px; }
+  .field textarea { min-height: 140px; }
+  .field input:focus,
+  .field textarea:focus {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -1px;
+    border-color: var(--color-accent);
+  }
+  .field .field-hint {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  .actions {
+    display: flex;
+    gap: var(--space-3);
+    margin-top: var(--space-5);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .actions .status {
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+  }
+  .actions .status.loading { color: var(--color-accent); }
+  .actions .status.error { color: var(--color-danger); }
+
+  /* Inline confirmation panel */
+  .inline-confirm {
+    background: var(--color-warning-bg);
+    border: 1px solid var(--color-warning);
+    border-radius: 8px;
+    padding: var(--space-3) var(--space-4);
+    margin: var(--space-3) 0;
+    display: none;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .inline-confirm.visible { display: flex; }
+  .inline-confirm .text { font-size: var(--text-sm); color: var(--color-text-primary); }
+  .inline-confirm .row { display: flex; gap: var(--space-2); }
+
+  /* Chat (journalist + critics) */
+  .chat-thread {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    margin: var(--space-4) 0;
+    max-height: 540px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .chat-msg {
+    border-radius: 8px;
+    padding: var(--space-3) var(--space-4);
+    line-height: 1.55;
+    white-space: pre-wrap;
+    font-size: var(--text-md);
+  }
+  .chat-msg.from-bot {
+    background: var(--color-card);
+    border-left: 3px solid var(--color-accent);
+  }
+  .chat-msg.from-pavel {
+    background: var(--color-bg-app);
+    border-left: 3px solid var(--color-text-muted);
+  }
+  .chat-msg.completion {
+    background: rgba(99, 102, 241, 0.06);
+    border: 1px solid var(--color-accent);
+    border-left: 3px solid var(--color-accent);
+  }
+  .chat-msg .role-label {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+    font-weight: var(--font-weight-semibold);
+  }
+  .chat-msg.from-bot .role-label { color: var(--color-accent); }
+
+  .answer-box {
+    background: var(--color-card);
+    border: 1px solid var(--color-card-border);
+    border-radius: 8px;
+    padding: var(--space-3);
+    margin-top: var(--space-3);
+  }
+  .answer-box textarea {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 90px;
+    font-family: inherit;
+    font-size: var(--text-md);
+    line-height: 1.5;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: var(--space-3);
+    background: var(--color-bg-app);
+    color: var(--color-text);
+    resize: vertical;
+  }
+  .answer-box textarea:focus {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -1px;
+  }
+  .answer-box .row {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    margin-top: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .answer-box .hint { color: var(--color-text-muted); font-size: var(--text-xs); }
+
+  /* Critics tabs */
+  .critic-tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+  }
+  .critic-tab {
+    position: relative;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: var(--text-xs);
+    font-weight: var(--font-weight-medium);
+    background: var(--color-bg-surface);
+    color: var(--color-text-secondary);
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .critic-tab:hover { background: var(--color-bg-muted); }
+  .critic-tab.active {
+    background: var(--color-accent);
+    color: #FFFFFF;
+    border-color: var(--color-accent);
+  }
+  .critic-tab .badge-num {
+    display: inline-block;
+    background: var(--color-danger);
+    color: #FFFFFF;
+    border-radius: 999px;
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
+    font-size: 10px;
+    text-align: center;
+    padding: 0 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+  .critic-tab.satisfied .badge-num { background: var(--color-success); }
+
+  /* Draft display */
+  .draft-display {
+    background: var(--color-bg-app);
+    border: 1px solid var(--color-card-border);
+    border-radius: 8px;
+    padding: var(--space-5);
+    font-family: 'Charter', 'Georgia', serif;
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--color-text);
+    white-space: pre-wrap;
+    max-height: 540px;
+    overflow-y: auto;
+    margin: var(--space-4) 0;
+  }
+
+  /* Analysis cards */
+  .analysis-summary {
+    background: var(--color-card);
+    border: 1px solid var(--color-card-border);
+    border-radius: 8px;
+    padding: var(--space-4);
+    margin: var(--space-3) 0;
+  }
+  .analysis-summary .score {
+    font-size: 24px;
+    font-weight: var(--font-weight-bold);
+    color: var(--color-text-primary);
+  }
+  .analysis-summary .score-label {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .analysis-summary .verdict {
+    margin-top: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  /* Fallback banner */
+  .fallback-banner {
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid var(--color-warning);
+    border-radius: 8px;
+    padding: var(--space-4);
+    margin: var(--space-3) 0;
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+  .fallback-banner strong { color: var(--color-warning); }
+
+  .session-list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    margin-bottom: var(--space-2);
+    background: var(--color-bg-app);
+    gap: var(--space-3);
+  }
+  .session-list-item .topic { flex: 1; font-size: var(--text-sm); color: var(--color-text); }
+  .session-list-item .meta { font-size: var(--text-xs); color: var(--color-text-muted); }
+
+  .btn-small {
+    padding: 4px 10px;
+    height: 28px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="sidebar" id="appSidebar" data-page="wizard"></aside>
+<script src="/static/nav.js"></script>
+<main class="page">
+<div class="wizard-layout">
+  <header class="page-head">
+    <div>
+      <h1>Новая глава</h1>
+      <p class="page-sub">Pipeline: идея → журналист → совет старейшин → драфт Opus → анализ → шедевр</p>
+    </div>
+    <div>
+      <button class="btn btn-ghost btn-small" id="restartBtn" onclick="confirmRestart()" style="display:none">Начать заново</button>
+    </div>
+  </header>
+
+  <!-- Inline restart confirmation -->
+  <div class="inline-confirm" id="restartConfirm">
+    <div class="text">Удалить текущую сессию и начать новую главу с нуля?</div>
+    <div class="row">
+      <button class="btn btn-danger btn-small" onclick="doRestart()">Да, начать заново</button>
+      <button class="btn btn-ghost btn-small" onclick="hideRestartConfirm()">Отмена</button>
+    </div>
+  </div>
+
+  <!-- Step indicator -->
+  <div class="step-indicator" id="stepIndicator">
+    <div class="step-indicator-item" data-step="1" onclick="navStep(1)">
+      <div class="step-bar"></div>
+      <div class="step-label"><span class="step-num">1</span>Идея</div>
+    </div>
+    <div class="step-indicator-item" data-step="2" onclick="navStep(2)">
+      <div class="step-bar"></div>
+      <div class="step-label"><span class="step-num">2</span>Журналист</div>
+    </div>
+    <div class="step-indicator-item" data-step="3" onclick="navStep(3)">
+      <div class="step-bar"></div>
+      <div class="step-label"><span class="step-num">3</span>Совет старейшин</div>
+    </div>
+    <div class="step-indicator-item" data-step="4" onclick="navStep(4)">
+      <div class="step-bar"></div>
+      <div class="step-label"><span class="step-num">4</span>Драфт Opus</div>
+    </div>
+    <div class="step-indicator-item" data-step="5" onclick="navStep(5)">
+      <div class="step-bar"></div>
+      <div class="step-label"><span class="step-num">5</span>Анализ</div>
+    </div>
+    <div class="step-indicator-item" data-step="6" onclick="navStep(6)">
+      <div class="step-bar"></div>
+      <div class="step-label"><span class="step-num">6</span>Финал</div>
+    </div>
+  </div>
+
+  <!-- STEP 1: Идея -->
+  <section class="wizard-step" data-step="1">
+    <h2>Шаг 1. Идея главы</h2>
+    <p class="step-sub">Назови главу и расскажи о чём она. Не нужно структурировать — поток мысли, как ты диктуешь голосом.</p>
+
+    <div class="field">
+      <label for="chapterTitle">Название главы</label>
+      <input type="text" id="chapterTitle" placeholder="Например: Возвращение к корням через шаманские практики">
+    </div>
+
+    <div class="field">
+      <label for="initialThoughts">Расскажи о чём глава</label>
+      <textarea id="initialThoughts" rows="8" placeholder="Что должно быть в этой главе? Какие идеи, образы, практики? Не структурируй, говори потоком."></textarea>
+      <div class="field-hint">На Mac надиктуй через Fn×2 (Voice Typing). Минимум 50 знаков.</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="step1NextBtn" onclick="goToJournalist()">Дальше — к Журналисту</button>
+      <span class="status" id="step1Status"></span>
+    </div>
+  </section>
+
+  <!-- STEP 2: Журналист -->
+  <section class="wizard-step" data-step="2">
+    <h2>Шаг 2. Журналист</h2>
+    <p class="step-sub">Глубинный Q&A. Журналист изучит Кодекс на эту тему и будет задавать вопросы по одному. Когда тема исследована — перейдёт к Совету Старейшин автоматически.</p>
+
+    <div class="chat-thread" id="journalistThread"></div>
+
+    <div class="answer-box" id="journalistAnswerBox">
+      <textarea id="journalistAnswer" placeholder="Твой ответ (Cmd+Enter — отправить, Fn×2 — голос)…"></textarea>
+      <div class="row">
+        <button class="btn btn-primary" id="sendJournalistBtn" onclick="sendJournalistAnswer()">Отправить</button>
+        <button class="btn btn-ghost" onclick="confirmForceToCouncil()">Принудительно к Совету</button>
+        <span class="hint" id="journalistHint"></span>
+      </div>
+    </div>
+
+    <div class="inline-confirm" id="forceCouncilConfirm">
+      <div class="text">Журналист ещё не закрыл тему. Точно перейти к Совету Старейшин?</div>
+      <div class="row">
+        <button class="btn btn-primary btn-small" onclick="doForceCouncil()">Да, к Совету</button>
+        <button class="btn btn-ghost btn-small" onclick="hideForceCouncilConfirm()">Остаться с Журналистом</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 3: Совет Старейшин (Critics Q&A) -->
+  <section class="wizard-step" data-step="3">
+    <h2>Шаг 3. Совет Старейшин</h2>
+    <p class="step-sub">Пятнадцать критиков по очереди задают свои уточняющие вопросы. Каждый со своего угла — теология, ритм, стиль, логика. Можно отвечать в любом порядке.</p>
+
+    <div id="criticsStatus"></div>
+    <div id="criticsContainer" style="display:none">
+      <div class="critic-tabs" id="criticTabs"></div>
+      <div id="activeCriticPanel"></div>
+    </div>
+    <div id="criticsFallback" style="display:none"></div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="navStep(2)">← к Журналисту</button>
+      <button class="btn btn-primary" id="step3NextBtn" onclick="goToDraft()">Дальше — Opus пишет драфт →</button>
+      <span class="status" id="step3Status"></span>
+    </div>
+  </section>
+
+  <!-- STEP 4: Opus пишет первую версию -->
+  <section class="wizard-step" data-step="4">
+    <h2>Шаг 4. Opus пишет первую версию</h2>
+    <p class="step-sub">Opus 4.7 соберёт всё: твою идею, ответы журналисту, уточнения Совета — и напишет первый драфт главы. 5-10 минут.</p>
+
+    <div id="draftStatusPanel" class="analysis-summary" style="display:none">
+      <div class="verdict" id="draftStatusText"></div>
+    </div>
+
+    <div id="draftDisplay" class="draft-display" style="display:none"></div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="navStep(3)">← к Совету</button>
+      <button class="btn btn-primary" id="generateDraftBtn" onclick="generateDraft()">Opus, напиши первую версию</button>
+      <button class="btn btn-secondary" id="draftRegenBtn" onclick="generateDraft()" style="display:none">Переписать заново</button>
+      <button class="btn btn-primary" id="toAnalysisBtn" onclick="goToAnalysis()" style="display:none">К анализу →</button>
+      <span class="status" id="step4Status"></span>
+    </div>
+  </section>
+
+  <!-- STEP 5: Анализ + доп. вопросы -->
+  <section class="wizard-step" data-step="5">
+    <h2>Шаг 5. Анализ Совета Критиков</h2>
+    <p class="step-sub">15 критиков читают драфт. Если оценка ниже 80 — собираем insights и возвращаемся к Opus за новой версией. Цикл до шедевра.</p>
+
+    <div id="analysisStatus"></div>
+    <div id="analysisResults" style="display:none"></div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="navStep(4)">← к драфту</button>
+      <button class="btn btn-primary" id="runCriticsBtn" onclick="runCritics()">Запустить критиков</button>
+      <button class="btn btn-secondary" id="iterateBtn" onclick="goToIterate()" style="display:none">Ещё одна итерация (Opus переписывает)</button>
+      <button class="btn btn-primary" id="acceptDraftBtn" onclick="goToFinal()" style="display:none">Хватит — к финалу →</button>
+      <span class="status" id="step5Status"></span>
+    </div>
+  </section>
+
+  <!-- STEP 6: Финал -->
+  <section class="wizard-step" data-step="6">
+    <h2>Шаг 6. Финал</h2>
+    <p class="step-sub">Глава готова. Дальше — редактор для финальной правки или ещё один прогон критиков.</p>
+
+    <div id="finalSummary" class="analysis-summary"></div>
+
+    <div class="actions">
+      <a class="btn btn-primary" id="openEditorBtn" href="#">Открыть в редакторе</a>
+      <a class="btn btn-secondary" id="runCriticsAgainBtn" href="#">Прогнать критиков ещё раз</a>
+      <button class="btn btn-ghost" onclick="confirmRestart()">Начать новую главу</button>
+    </div>
+  </section>
+
+  <!-- Resume banner -->
+  <div id="resumeBanner" style="display:none; margin-top: var(--space-6); padding: var(--space-4); background: var(--color-bg-app); border: 1px dashed var(--color-border); border-radius: 8px;">
+    <div style="font-size: var(--text-sm); color: var(--color-text-muted); margin-bottom: var(--space-2);">
+      Незавершённая сессия найдена: <strong id="resumeTitle"></strong>
+    </div>
+    <div style="display:flex; gap: var(--space-2);">
+      <button class="btn btn-primary btn-small" onclick="resumeSession()">Продолжить</button>
+      <button class="btn btn-ghost btn-small" onclick="dismissResume()">Начать новую</button>
+    </div>
+  </div>
+</div>
+</main>
+</div>
+
+<script>
+// ─── State ──────────────────────────────────────────────
+const STORAGE_KEY_PREFIX = 'kodeks.wizard.session.';
+const LAST_SESSION_KEY = 'kodeks.wizard.lastSessionId';
+
+let state = {
+  wizard_session_id: null,
+  current_step: 1,
+  reached_step: 1,
+  chapter_title: '',
+  initial_thoughts: '',
+  journalist_session_id: null,
+  journalist_session: null,
+  journalist_forced: false,
+  critics_qa_session_id: null,
+  critics_qa_session: null,
+  critics_qa_available: false,
+  active_critic_id: null,
+  draft_text: '',
+  new_chapter_id: null,
+  word_count: 0,
+  draft_iteration: 0,
+  analysis_report: null,
+  analysis_score: null,
+  accumulated_insights: [],
+  created_at: null,
+  updated_at: null,
+};
+
+// ─── Helpers ────────────────────────────────────────────
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function nowIso() { return new Date().toISOString(); }
+
+function newSessionId() {
+  return 'ws-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+}
+
+function saveState() {
+  if (!state.wizard_session_id) return;
+  state.updated_at = nowIso();
+  try {
+    localStorage.setItem(STORAGE_KEY_PREFIX + state.wizard_session_id, JSON.stringify(state));
+    localStorage.setItem(LAST_SESSION_KEY, state.wizard_session_id);
+  } catch (e) { console.warn('localStorage failed', e); }
+  // Async backup to server (fire-and-forget)
+  fetch('/api/wizard/state', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(state),
+  }).catch(() => {});
+}
+
+function loadStateFromStorage(sid) {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PREFIX + sid);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return null;
+}
+
+function clearStateFromStorage(sid) {
+  try {
+    localStorage.removeItem(STORAGE_KEY_PREFIX + sid);
+    if (localStorage.getItem(LAST_SESSION_KEY) === sid) {
+      localStorage.removeItem(LAST_SESSION_KEY);
+    }
+  } catch (e) {}
+}
+
+function setStatus(elemId, text, type) {
+  const el = document.getElementById(elemId);
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'status' + (type ? ' ' + type : '');
+}
+
+// ─── Step navigation ────────────────────────────────────
+function showStep(n) {
+  state.current_step = n;
+  if (n > state.reached_step) state.reached_step = n;
+  saveState();
+  for (const s of document.querySelectorAll('.wizard-step')) {
+    s.classList.toggle('visible', parseInt(s.dataset.step) === n);
+  }
+  for (const item of document.querySelectorAll('.step-indicator-item')) {
+    const step = parseInt(item.dataset.step);
+    item.classList.remove('active', 'done', 'disabled');
+    if (step === n) item.classList.add('active');
+    else if (step < state.reached_step) item.classList.add('done');
+    if (step > state.reached_step) item.classList.add('disabled');
+  }
+  document.getElementById('restartBtn').style.display = (state.reached_step > 1) ? '' : 'none';
+  window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+function navStep(n) {
+  // Forward only as far as we've reached
+  if (n > state.reached_step) return;
+  showStep(n);
+  // Re-render relevant step on entry
+  if (n === 2) renderJournalist();
+  if (n === 3) ensureCriticsQa();
+  if (n === 4) renderDraftStep();
+  if (n === 5) renderAnalysisStep();
+  if (n === 6) renderFinalStep();
+}
+
+// ─── Step 1 → Journalist ────────────────────────────────
+async function goToJournalist() {
+  const title = document.getElementById('chapterTitle').value.trim();
+  const thoughts = document.getElementById('initialThoughts').value.trim();
+  if (!title) {
+    setStatus('step1Status', 'Введи название главы', 'error');
+    return;
+  }
+  if (thoughts.length < 50) {
+    setStatus('step1Status', `Расскажи подробнее (${thoughts.length}/50 знаков)`, 'error');
+    return;
+  }
+  state.chapter_title = title;
+  state.initial_thoughts = thoughts;
+  if (!state.wizard_session_id) {
+    state.wizard_session_id = newSessionId();
+    state.created_at = nowIso();
+  }
+  setStatus('step1Status', 'Журналист изучает Кодекс…', 'loading');
+  document.getElementById('step1NextBtn').disabled = true;
+
+  const topic = `${title}\n\n${thoughts}`;
+  try {
+    const r = await fetch('/api/journalist/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({topic}),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'unknown');
+    state.journalist_session_id = d.session.session_id;
+    state.journalist_session = d.session;
+    setStatus('step1Status', '');
+    document.getElementById('step1NextBtn').disabled = false;
+    showStep(2);
+    renderJournalist();
+  } catch (e) {
+    setStatus('step1Status', 'Ошибка: ' + e.message, 'error');
+    document.getElementById('step1NextBtn').disabled = false;
+  }
+}
+
+// ─── Step 2: Journalist Q&A ─────────────────────────────
+function renderJournalist() {
+  const thread = document.getElementById('journalistThread');
+  if (!state.journalist_session) {
+    thread.innerHTML = '<div class="chat-msg from-bot"><div class="role-label">Журналист</div>Загружаю сессию…</div>';
+    return;
+  }
+  const messages = state.journalist_session.messages || [];
+  thread.innerHTML = '';
+  for (const m of messages) {
+    if (m.kind === 'context_dump') continue;
+    const div = document.createElement('div');
+    div.className = 'chat-msg ' + (m.role === 'journalist' ? 'from-bot' : 'from-pavel');
+    if (m.kind === 'completion') div.classList.add('completion');
+    const label = m.role === 'journalist' ? 'Журналист' : 'Pavel';
+    div.innerHTML = `<div class="role-label">${esc(label)}</div>${esc(m.text)}`;
+    thread.appendChild(div);
+  }
+  // Scroll to bottom of thread (not page)
+  thread.scrollTop = thread.scrollHeight;
+
+  const complete = !!state.journalist_session.complete;
+  document.getElementById('journalistAnswerBox').style.display = complete ? 'none' : 'block';
+  if (complete && !state.journalist_forced) {
+    // Auto-advance to step 3
+    setTimeout(() => {
+      if (state.current_step === 2 && state.journalist_session.complete) {
+        navStep(3);
+      }
+    }, 700);
+  }
+}
+
+async function sendJournalistAnswer() {
+  const ta = document.getElementById('journalistAnswer');
+  const answer = ta.value.trim();
+  if (!answer) {
+    document.getElementById('journalistHint').textContent = 'Напиши ответ';
+    return;
+  }
+  if (!state.journalist_session_id) {
+    document.getElementById('journalistHint').textContent = 'Сессия потеряна';
+    return;
+  }
+  const btn = document.getElementById('sendJournalistBtn');
+  btn.disabled = true;
+  btn.textContent = 'Журналист думает…';
+  document.getElementById('journalistHint').textContent = '';
+
+  try {
+    const r = await fetch('/api/journalist/answer', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_id: state.journalist_session_id, answer}),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'unknown');
+    state.journalist_session = d.session;
+    ta.value = '';
+    renderJournalist();
+    saveState();
+    setTimeout(() => ta.focus(), 50);
+  } catch (e) {
+    document.getElementById('journalistHint').textContent = 'Ошибка: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Отправить';
+  }
+}
+
+function confirmForceToCouncil() {
+  document.getElementById('forceCouncilConfirm').classList.add('visible');
+}
+function hideForceCouncilConfirm() {
+  document.getElementById('forceCouncilConfirm').classList.remove('visible');
+}
+function doForceCouncil() {
+  state.journalist_forced = true;
+  state.reached_step = Math.max(state.reached_step || 1, 3);
+  saveState();
+  hideForceCouncilConfirm();
+  navStep(3);
+}
+
+// ─── Step 3: Critics Q&A (UC-91) ────────────────────────
+async function ensureCriticsQa() {
+  const statusEl = document.getElementById('criticsStatus');
+  const container = document.getElementById('criticsContainer');
+  const fallback = document.getElementById('criticsFallback');
+
+  if (state.critics_qa_session_id && state.critics_qa_session) {
+    statusEl.innerHTML = '';
+    container.style.display = '';
+    fallback.style.display = 'none';
+    renderCriticsTabs();
+    return;
+  }
+
+  statusEl.innerHTML = '<div class="step-sub">Совет Старейшин собирается…</div>';
+
+  try {
+    const r = await fetch('/api/critics-qa/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({journalist_session_id: state.journalist_session_id}),
+    });
+    if (r.status === 404 || r.status === 405) {
+      throw new Error('endpoint_not_ready');
+    }
+    if (!r.ok) {
+      throw new Error('status_' + r.status);
+    }
+    const d = await r.json();
+    if (d.error || d.ok === false) {
+      throw new Error(d.error || 'unknown');
+    }
+    state.critics_qa_session_id = d.session_id || (d.session && d.session.session_id);
+    state.critics_qa_session = d.session || d;
+    state.critics_qa_available = true;
+    statusEl.innerHTML = '';
+    container.style.display = '';
+    fallback.style.display = 'none';
+    renderCriticsTabs();
+    saveState();
+  } catch (e) {
+    statusEl.innerHTML = '';
+    container.style.display = 'none';
+    fallback.style.display = 'block';
+    state.critics_qa_available = false;
+    fallback.innerHTML = `
+      <div class="fallback-banner">
+        <strong>Совет Старейшин подключается.</strong>
+        <div style="margin-top:6px; font-size: var(--text-xs); color: var(--color-text-muted);">
+          Endpoint <code>/api/critics-qa/start</code> ещё не готов (UC-91 в работе другим агентом). Пока можно пропустить этот шаг.
+        </div>
+        <div style="margin-top: var(--space-3); display:flex; gap: var(--space-2);">
+          <button class="btn btn-secondary btn-small" onclick="ensureCriticsQa()">Попробовать снова</button>
+          <button class="btn btn-primary btn-small" onclick="navStep(4)">Пропустить — к Opus</button>
+        </div>
+      </div>
+    `;
+    saveState();
+  }
+}
+
+function renderCriticsTabs() {
+  const session = state.critics_qa_session;
+  if (!session) return;
+  const tabsEl = document.getElementById('criticTabs');
+  const panelEl = document.getElementById('activeCriticPanel');
+  const critics = session.critics || [];
+
+  if (!state.active_critic_id && critics.length) {
+    state.active_critic_id = critics[0].id;
+  }
+
+  tabsEl.innerHTML = critics.map(c => {
+    const unread = c.unread_questions || 0;
+    const satisfied = !!c.satisfied;
+    const active = c.id === state.active_critic_id;
+    const cls = ['critic-tab'];
+    if (active) cls.push('active');
+    if (satisfied) cls.push('satisfied');
+    const badge = unread > 0
+      ? `<span class="badge-num">${unread}</span>`
+      : (satisfied ? '<span class="badge-num">✓</span>' : '');
+    return `<button class="${cls.join(' ')}" onclick="selectCritic('${esc(c.id)}')">${esc(c.name || c.id)}${badge}</button>`;
+  }).join('');
+
+  const active = critics.find(c => c.id === state.active_critic_id) || critics[0];
+  if (!active) {
+    panelEl.innerHTML = '<div class="step-sub">Нет критиков в сессии.</div>';
+    return;
+  }
+  const msgs = active.messages || [];
+  const threadHtml = msgs.map(m => {
+    const role = m.role === 'critic' ? 'from-bot' : 'from-pavel';
+    const label = m.role === 'critic' ? (active.name || 'Критик') : 'Pavel';
+    return `<div class="chat-msg ${role}"><div class="role-label">${esc(label)}</div>${esc(m.text)}</div>`;
+  }).join('');
+  panelEl.innerHTML = `
+    <div class="chat-thread">${threadHtml || '<div class="step-sub">Критик ещё не задал вопрос.</div>'}</div>
+    <div class="answer-box" id="criticAnswerBox-${esc(active.id)}">
+      <textarea id="criticAnswerInput" placeholder="Ответ ${esc(active.name || 'критику')} (Cmd+Enter)…"></textarea>
+      <div class="row">
+        <button class="btn btn-primary" onclick="sendCriticAnswer('${esc(active.id)}')">Отправить</button>
+        <span class="hint" id="criticAnswerHint"></span>
+      </div>
+    </div>
+  `;
+
+  // Check if all satisfied
+  const allSat = !!session.all_satisfied || critics.every(c => c.satisfied);
+  if (allSat) {
+    panelEl.innerHTML += `
+      <div class="analysis-summary" style="margin-top: var(--space-4); border-color: var(--color-success);">
+        <div class="score-label" style="color: var(--color-success);">Совет удовлетворён</div>
+        <div class="verdict">Все 15 критиков получили нужные уточнения. Можно переходить к Opus.</div>
+      </div>
+    `;
+  }
+}
+
+function selectCritic(id) {
+  state.active_critic_id = id;
+  renderCriticsTabs();
+  saveState();
+}
+
+async function sendCriticAnswer(criticId) {
+  const ta = document.getElementById('criticAnswerInput');
+  const answer = ta ? ta.value.trim() : '';
+  if (!answer) {
+    const h = document.getElementById('criticAnswerHint');
+    if (h) h.textContent = 'Напиши ответ';
+    return;
+  }
+  try {
+    const r = await fetch('/api/critics-qa/answer', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        session_id: state.critics_qa_session_id,
+        critic_id: criticId,
+        answer,
+      }),
+    });
+    if (!r.ok) throw new Error('status_' + r.status);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    state.critics_qa_session = d.session || d;
+    renderCriticsTabs();
+    saveState();
+  } catch (e) {
+    const h = document.getElementById('criticAnswerHint');
+    if (h) h.textContent = 'Ошибка: ' + e.message;
+  }
+}
+
+function goToDraft() {
+  navStep(4);
+}
+
+// ─── Step 4: Generate draft ─────────────────────────────
+function renderDraftStep() {
+  if (state.draft_text) {
+    document.getElementById('draftDisplay').style.display = 'block';
+    document.getElementById('draftDisplay').textContent = state.draft_text;
+    document.getElementById('generateDraftBtn').style.display = 'none';
+    document.getElementById('draftRegenBtn').style.display = '';
+    document.getElementById('toAnalysisBtn').style.display = '';
+    document.getElementById('draftStatusPanel').style.display = 'block';
+    document.getElementById('draftStatusText').textContent =
+      `Готово: ${state.word_count} слов · сохранено как ${state.new_chapter_id} · итерация ${state.draft_iteration}`;
+  } else {
+    document.getElementById('draftDisplay').style.display = 'none';
+    document.getElementById('generateDraftBtn').style.display = '';
+    document.getElementById('draftRegenBtn').style.display = 'none';
+    document.getElementById('toAnalysisBtn').style.display = 'none';
+    document.getElementById('draftStatusPanel').style.display = 'none';
+  }
+}
+
+async function generateDraft() {
+  const btn1 = document.getElementById('generateDraftBtn');
+  const btn2 = document.getElementById('draftRegenBtn');
+  btn1.disabled = true;
+  btn2.disabled = true;
+  setStatus('step4Status', 'Opus пишет главу · 5-10 минут · шедевр на 1000 лет…', 'loading');
+  document.getElementById('draftStatusPanel').style.display = 'block';
+  document.getElementById('draftStatusText').textContent = 'Opus думает…';
+  document.getElementById('draftDisplay').style.display = 'none';
+
+  // Find book_id — default book-obsession, but fetch toc to be safe
+  let book_id = 'book-obsession';
+  try {
+    const tocResp = await fetch('/api/toc');
+    const tocData = await tocResp.json();
+    const books = (tocData.books || []).filter(b => b.id && !b.id.startsWith('ustav'));
+    if (books.length) {
+      const obs = books.find(b => b.id === 'book-obsession');
+      book_id = obs ? 'book-obsession' : books[0].id;
+    }
+  } catch (e) {}
+
+  const payload = {
+    book_id,
+    title: state.chapter_title,
+    chapter_type: 'main',
+    initial_thoughts: state.initial_thoughts,
+    journalist_session_id: state.journalist_session_id,
+    critics_qa_session_id: state.critics_qa_session_id,
+    accumulated_insights: state.accumulated_insights,
+    questions: [],
+    answers: [],
+  };
+  // Pass journalist Q&A as extra context
+  if (state.journalist_session && state.journalist_session.messages) {
+    const qs = [], as = [];
+    let lastQ = null;
+    for (const m of state.journalist_session.messages) {
+      if (m.kind === 'context_dump') continue;
+      if (m.role === 'journalist' && m.kind !== 'completion') lastQ = m.text;
+      else if (m.role === 'pavel' && lastQ) {
+        qs.push(lastQ);
+        as.push(m.text);
+        lastQ = null;
+      }
+    }
+    payload.questions = qs;
+    payload.answers = as;
+  }
+
+  try {
+    const r = await fetch('/api/wizard/generate-draft', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    state.draft_text = d.draft || '';
+    state.new_chapter_id = d.chapter_id;
+    state.word_count = d.word_count || 0;
+    state.draft_iteration = (state.draft_iteration || 0) + 1;
+    state.analysis_report = null;
+    state.analysis_score = null;
+    saveState();
+    renderDraftStep();
+    setStatus('step4Status', '');
+  } catch (e) {
+    setStatus('step4Status', 'Ошибка: ' + e.message, 'error');
+    document.getElementById('draftStatusText').textContent = 'Ошибка: ' + e.message;
+  } finally {
+    btn1.disabled = false;
+    btn2.disabled = false;
+  }
+}
+
+function goToAnalysis() {
+  navStep(5);
+}
+
+// ─── Step 5: Critic council analysis ────────────────────
+function renderAnalysisStep() {
+  const statusEl = document.getElementById('analysisStatus');
+  const resultsEl = document.getElementById('analysisResults');
+  if (!state.draft_text) {
+    statusEl.innerHTML = '<div class="step-sub">Сначала сгенерируй драфт на шаге 4.</div>';
+    return;
+  }
+  if (!state.analysis_report) {
+    statusEl.innerHTML = '<div class="step-sub">Запусти 15 критиков на драфте, кнопка ниже.</div>';
+    resultsEl.style.display = 'none';
+    return;
+  }
+  statusEl.innerHTML = '';
+  resultsEl.style.display = 'block';
+  const score = state.analysis_score == null ? '?' : state.analysis_score;
+  const verdict = state.analysis_report.verdict || '';
+  const summary = state.analysis_report.summary || '';
+  resultsEl.innerHTML = `
+    <div class="analysis-summary">
+      <div class="score-label">Финальная оценка</div>
+      <div class="score">${esc(String(score))} / 100</div>
+      <div class="verdict">${esc(verdict)} — ${esc(summary)}</div>
+    </div>
+  `;
+  // Action visibility
+  document.getElementById('runCriticsBtn').style.display = '';
+  document.getElementById('runCriticsBtn').textContent = 'Перезапустить критиков';
+  if (state.analysis_score != null && state.analysis_score < 80) {
+    document.getElementById('iterateBtn').style.display = '';
+  } else {
+    document.getElementById('iterateBtn').style.display = 'none';
+  }
+  document.getElementById('acceptDraftBtn').style.display = '';
+}
+
+async function runCritics() {
+  if (!state.new_chapter_id) {
+    setStatus('step5Status', 'Нет chapter_id', 'error');
+    return;
+  }
+  const btn = document.getElementById('runCriticsBtn');
+  btn.disabled = true;
+  setStatus('step5Status', '15 критиков читают главу · 3-7 минут…', 'loading');
+
+  try {
+    const r = await fetch('/api/critics/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chapter_id: state.new_chapter_id, with_global: true}),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'критики не запустились');
+    setStatus('step5Status', 'Критики запущены (pid ' + d.pid + ') · читаю отчёт…', 'loading');
+    // Poll for report
+    const reportPath = d.report_path;
+    let report = null;
+    for (let i = 0; i < 60; i++) {
+      await new Promise(res => setTimeout(res, 5000));
+      try {
+        const rr = await fetch('/api/critics/report?path=' + encodeURIComponent(reportPath));
+        if (rr.ok) {
+          const rd = await rr.json();
+          if (rd && rd.synthesis) {
+            report = rd;
+            break;
+          }
+        }
+      } catch (e) {}
+    }
+    if (!report) {
+      setStatus('step5Status', 'Отчёт не сформировался за 5 минут. Проверь .codex/critics-run.log', 'error');
+      return;
+    }
+    const synth = report.synthesis || {};
+    state.analysis_report = synth;
+    state.analysis_score = synth.final_score != null ? synth.final_score : null;
+    // Accumulate insights for potential next iteration
+    if (synth.top_5_priority_edits) {
+      state.accumulated_insights = synth.top_5_priority_edits.slice();
+    }
+    saveState();
+    renderAnalysisStep();
+    setStatus('step5Status', '');
+  } catch (e) {
+    setStatus('step5Status', 'Ошибка: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function goToIterate() {
+  // Back to step 4 to regenerate with accumulated insights
+  navStep(4);
+}
+
+function goToFinal() {
+  navStep(6);
+}
+
+// ─── Step 6: Final ──────────────────────────────────────
+function renderFinalStep() {
+  const sumEl = document.getElementById('finalSummary');
+  if (!state.new_chapter_id) {
+    sumEl.innerHTML = '<div class="verdict">Глава ещё не сгенерирована.</div>';
+    return;
+  }
+  const score = state.analysis_score == null ? '—' : state.analysis_score + ' / 100';
+  sumEl.innerHTML = `
+    <div class="score-label">Глава</div>
+    <div class="score">${esc(state.new_chapter_id)}</div>
+    <div class="verdict">${state.word_count} слов · итераций: ${state.draft_iteration} · оценка критиков: ${esc(String(score))}</div>
+  `;
+  document.getElementById('openEditorBtn').href = `/editor?chapter=${encodeURIComponent(state.new_chapter_id)}`;
+  document.getElementById('runCriticsAgainBtn').href = `/critics?chapter=${encodeURIComponent(state.new_chapter_id)}`;
+}
+
+// ─── Restart ────────────────────────────────────────────
+function confirmRestart() {
+  document.getElementById('restartConfirm').classList.add('visible');
+}
+function hideRestartConfirm() {
+  document.getElementById('restartConfirm').classList.remove('visible');
+}
+function doRestart() {
+  if (state.wizard_session_id) clearStateFromStorage(state.wizard_session_id);
+  state = {
+    wizard_session_id: null,
+    current_step: 1,
+    reached_step: 1,
+    chapter_title: '',
+    initial_thoughts: '',
+    journalist_session_id: null,
+    journalist_session: null,
+    journalist_forced: false,
+    critics_qa_session_id: null,
+    critics_qa_session: null,
+    critics_qa_available: false,
+    active_critic_id: null,
+    draft_text: '',
+    new_chapter_id: null,
+    word_count: 0,
+    draft_iteration: 0,
+    analysis_report: null,
+    analysis_score: null,
+    accumulated_insights: [],
+    created_at: null,
+    updated_at: null,
+  };
+  document.getElementById('chapterTitle').value = '';
+  document.getElementById('initialThoughts').value = '';
+  hideRestartConfirm();
+  showStep(1);
+}
+
+// ─── Resume / init ──────────────────────────────────────
+function showResumeBanner(sid, title) {
+  const banner = document.getElementById('resumeBanner');
+  document.getElementById('resumeTitle').textContent = title || '(без названия)';
+  banner.dataset.sid = sid;
+  banner.style.display = 'block';
+}
+function dismissResume() {
+  document.getElementById('resumeBanner').style.display = 'none';
+}
+async function resumeSession() {
+  const sid = document.getElementById('resumeBanner').dataset.sid;
+  if (!sid) return;
+  const saved = loadStateFromStorage(sid);
+  if (!saved) {
+    dismissResume();
+    return;
+  }
+  state = saved;
+  // Reload journalist session from server if we have id
+  if (state.journalist_session_id) {
+    try {
+      const r = await fetch(`/api/journalist/sessions/${state.journalist_session_id}`);
+      if (r.ok) {
+        const d = await r.json();
+        if (!d.error) state.journalist_session = d;
+      }
+    } catch (e) {}
+  }
+  // Populate inputs if step 1 data exists
+  if (state.chapter_title) document.getElementById('chapterTitle').value = state.chapter_title;
+  if (state.initial_thoughts) document.getElementById('initialThoughts').value = state.initial_thoughts;
+  dismissResume();
+  showStep(state.current_step || 1);
+  if (state.current_step === 2) renderJournalist();
+  if (state.current_step === 3) ensureCriticsQa();
+  if (state.current_step === 4) renderDraftStep();
+  if (state.current_step === 5) renderAnalysisStep();
+  if (state.current_step === 6) renderFinalStep();
+}
+
+// ─── Keyboard: Cmd+Enter to submit ──────────────────────
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    const journalistTa = document.getElementById('journalistAnswer');
+    const criticTa = document.getElementById('criticAnswerInput');
+    if (journalistTa && document.activeElement === journalistTa) {
+      e.preventDefault();
+      sendJournalistAnswer();
+    } else if (criticTa && document.activeElement === criticTa) {
+      e.preventDefault();
+      // Find which critic is active
+      if (state.active_critic_id) sendCriticAnswer(state.active_critic_id);
+    }
+  }
+});
+
+// ─── Init ───────────────────────────────────────────────
+(function init() {
+  showStep(1);
+  // Check for unfinished session
+  try {
+    const lastSid = localStorage.getItem(LAST_SESSION_KEY);
+    if (lastSid) {
+      const saved = loadStateFromStorage(lastSid);
+      if (saved && saved.reached_step > 1 && saved.current_step !== 6) {
+        showResumeBanner(lastSid, saved.chapter_title);
+      }
+    }
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
