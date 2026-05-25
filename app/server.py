@@ -236,6 +236,9 @@ class CodexV2Handler(http.server.BaseHTTPRequestHandler):
         # CODEX 3: вставка параграфа в draft.md после approval/edit
         if path == "/api/chapter/insert-paragraph":
             return self._insert_paragraph()
+        # Прямая замена параграфа (используется master-audit Apply, без Opus)
+        if path == "/api/chapter/replace-paragraph":
+            return self._replace_paragraph()
         if path == "/api/briefing/regenerate":
             """POST → пересоздать MORNING-BRIEFING.md прямо сейчас."""
             import subprocess
@@ -6741,6 +6744,88 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             "inserted_at_idx": insert_at,
             "total_paragraphs": len(paras),
             "backup": backup_path.name if backup_path else None,
+        })
+
+    def _replace_paragraph(self):
+        """POST {chapter_id, para_idx, new_text, source?} → детерминированная замена
+        параграфа N в draft.md. БЕЗ Opus, без интерпретации. Мгновенно.
+        Используется master-audit Apply, paragraph-writer и т.п."""
+        import re as _re
+        from datetime import datetime, timezone
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            return self._json({"error": "bad json"}, 400)
+
+        chapter_id = req.get("chapter_id", "")
+        para_idx = req.get("para_idx")
+        new_text = (req.get("new_text") or "").strip()
+        source = req.get("source", "manual")
+
+        m = _re.match(r"^(book-\d+|book-[a-z][a-z0-9-]*?|prologue|epilogue|ustav|appendices)-ch-(\d+)$", chapter_id)
+        if not m:
+            return self._json({"error": "bad chapter_id"}, 400)
+        if para_idx is None:
+            return self._json({"error": "para_idx required"}, 400)
+        try:
+            para_idx = int(para_idx)
+        except Exception:
+            return self._json({"error": "para_idx must be number"}, 400)
+        if not new_text or len(new_text) < 5:
+            return self._json({"error": "new_text слишком короткий"}, 400)
+
+        book_id = m.group(1)
+        ch_dir = DATA_ROOT / "chapters" / book_id / chapter_id
+        draft_file = ch_dir / "draft.md"
+        if not draft_file.exists():
+            return self._json({"error": "no draft.md"}, 404)
+
+        current = draft_file.read_text(encoding="utf-8")
+        paras = [p.strip() for p in current.split("\n\n") if p.strip()]
+        if para_idx < 0 or para_idx >= len(paras):
+            return self._json({"error": f"para_idx out of range (0..{len(paras)-1})"}, 400)
+
+        # Backup
+        ts_compact = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        history_dir = ch_dir / "history"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        backup_path = history_dir / f"{ts_compact}-pre-replace-p{para_idx}.md"
+        backup_path.write_text(current, encoding="utf-8")
+
+        old_paragraph = paras[para_idx]
+        paras[para_idx] = new_text
+        new_draft = "\n\n".join(paras) + "\n"
+        draft_file.write_text(new_draft, encoding="utf-8")
+
+        # Лог события
+        events_log = DATA_ROOT / ".codex/events.jsonl"
+        events_log.parent.mkdir(parents=True, exist_ok=True)
+        with events_log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "ts": ts_iso,
+                "type": "paragraph_replaced",
+                "target": chapter_id,
+                "payload": {
+                    "para_idx": para_idx,
+                    "source": source,
+                    "old_chars": len(old_paragraph),
+                    "new_chars": len(new_text),
+                    "backup": backup_path.name,
+                },
+            }, ensure_ascii=False) + "\n")
+
+        return self._json({
+            "ok": True,
+            "para_idx": para_idx,
+            "old_chars": len(old_paragraph),
+            "new_chars": len(new_text),
+            "total_paragraphs": len(paras),
+            "backup": backup_path.name,
+            "source": source,
         })
 
     # ─── UC-30: WIZARD — глава с нуля через Q&A (Pavel 2026-05-20) ──

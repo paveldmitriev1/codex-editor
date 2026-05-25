@@ -2226,43 +2226,42 @@
     var d = window.__MASTER_AUDIT_DATA;
     if (!d || !d.edits || !d.edits[idx]) return;
     var e = d.edits[idx];
-    /* Без confirm — Pavel хочет одним кликом. Откат через .history/ если что. */
-    var selections = [{
-      source: 'master_audit',
-      id: 'master_' + idx,
-      category: e.category || 'правка',
-      text: 'Заменить параграф ' + e.para_idx + ' на: ' + (e.fix || ''),
-      para_idx: e.para_idx,
-      suggested_after_paragraph: ''
-    }];
-    fetch('/api/chapter/' + encodeURIComponent(CURRENT_CHAPTER) + '/apply-targeted', {
+    if (e.para_idx == null) { toast('Нет para_idx у этой правки', 4000); return; }
+    if (!e.fix || e.fix.length < 5) { toast('Замена пустая или слишком короткая', 4000); return; }
+
+    /* Прямая замена параграфа — без Opus, мгновенно. Endpoint replace-paragraph. */
+    fetch('/api/chapter/replace-paragraph', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selections: selections })
+      body: JSON.stringify({
+        chapter_id: CURRENT_CHAPTER,
+        para_idx: e.para_idx,
+        new_text: e.fix,
+        source: 'master_audit_' + (e.category || 'edit'),
+      })
     })
       .then(function(r) { return r.json(); })
       .then(function(r) {
-        if (r.ok) {
-          toast('Применено. Параграфов изменено: ' + (r.changed_paras || '?'), 4000);
-          /* Помечаем правку как применённую — на reload карточка не вернётся */
-          if (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits) {
-            window.__MASTER_AUDIT_DATA.edits[idx].applied = true;
-            window.__MASTER_AUDIT_DATA.edits = window.__MASTER_AUDIT_DATA.edits.filter(function(x) { return !x.applied; });
-          }
-          var remaining = (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits) ? window.__MASTER_AUDIT_DATA.edits.length : 0;
-          loadChapter(CURRENT_CHAPTER);
-          /* Если ещё остались правки — перерисуем их inline под новыми параграфами.
-             Если все применены — автоматически перепрогоняем Мастера для пересчёта оценки. */
-          setTimeout(function() {
-            if (remaining > 0) {
-              renderMasterAudit(window.__MASTER_AUDIT_DATA);
-            } else {
-              triggerScoreRecalc();
-            }
-          }, 800);
-        } else {
+        if (!r.ok) {
           toast('Ошибка: ' + (r.error || '?'), 6000);
+          return;
         }
+        toast('Параграф ' + e.para_idx + ' заменён (бэкап: ' + r.backup + ')', 3500);
+        /* Помечаем правку как применённую */
+        if (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits) {
+          window.__MASTER_AUDIT_DATA.edits[idx].applied = true;
+          window.__MASTER_AUDIT_DATA.edits = window.__MASTER_AUDIT_DATA.edits.filter(function(x) { return !x.applied; });
+        }
+        var remaining = (window.__MASTER_AUDIT_DATA && window.__MASTER_AUDIT_DATA.edits) ? window.__MASTER_AUDIT_DATA.edits.length : 0;
+        /* Перезагружаем главу — параграф обновится */
+        loadChapter(CURRENT_CHAPTER);
+        setTimeout(function() {
+          if (remaining > 0) {
+            renderMasterAudit(window.__MASTER_AUDIT_DATA);
+          } else {
+            triggerScoreRecalc();
+          }
+        }, 600);
       })
       .catch(function(err) { toast('Сеть: ' + err.message, 5000); });
   }
