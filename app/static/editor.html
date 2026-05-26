@@ -329,9 +329,10 @@
         <option value="">Загружаю главы…</option>
       </select>
       <span class="save-status" id="saveStatus">из источника</span>
-      <button class="btn btn-primary btn-sm" id="saveBtn" disabled title="Активируется когда ты сделал правку. Двойной клик на параграф → пишешь → сохраняется автоматически каждые 1.5 секунды. Эту кнопку можно использовать только для финального manual save.">Сохранить</button>
-      <button class="btn btn-ghost btn-sm" id="undoBtn" disabled title="Откатить (⌘Z)">↶</button>
-      <button class="btn btn-ghost btn-sm" id="redoBtn" disabled title="Накатить (⌘⇧Z)">↷</button>
+      <button class="btn btn-primary btn-sm" id="saveBtn" disabled title="Авто-сохраняется при двойном клике на параграф. Эта кнопка нужна только для ручного финального save.">Сохранить</button>
+      <button class="btn btn-ghost btn-sm" id="undoBtn" disabled title="Откатить последнюю правку (⌘Z). Активируется после первой правки.">↶</button>
+      <button class="btn btn-ghost btn-sm" id="redoBtn" disabled title="Накатить (⌘⇧Z). Активируется после Undo.">↷</button>
+      <span style="display:inline-block;padding:4px 10px;background:#dcfce7;color:#14532d;border-radius:12px;font-size:11px;font-weight:600;border:1px solid #86efac;" title="Двойной клик на любой параграф → пишешь → автосохранение каждые 1.5 сек. Opus проверяет опечатки через 3 сек.">⚡ Автосохранение работает</span>
       <button class="btn btn-secondary btn-sm" id="finalizeBtn" disabled>Финализировать</button>
       <a class="btn btn-ghost btn-sm" id="readBtn" href="#" target="_blank" style="display:none">Прочитать</a>
       <button class="btn btn-primary btn-sm" id="analyzeBtn" disabled title="Сначала выбери главу в списке слева" style="background:#6366F1;color:white">Анализ и рекомендации ▾</button>
