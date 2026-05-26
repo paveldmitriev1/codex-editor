@@ -3213,7 +3213,7 @@
       toast('Сначала выбери главу');
       return;
     }
-    setAnalysisStatus('running', 'запускаю 5 критиков (3-5 мин)…');
+    setAnalysisStatus('running', 'запускаю 5 критиков…');
     document.getElementById('analysisRunBtn').disabled = true;
     fetch('/api/critics/run', {
       method: 'POST',
@@ -3227,20 +3227,84 @@
           document.getElementById('analysisRunBtn').disabled = false;
           return;
         }
-        toast('Анализ запущен в фоне. Проверим результат через минуту.', 4000);
-        /* Поллим раз в 60 сек */
+        /* Pavel 2026-05-26: visible progress banner + 20-сек polling. */
+        showCriticsProgressBanner();
         if (ANALYSIS_POLL_TIMER) clearInterval(ANALYSIS_POLL_TIMER);
+        var baselineCount = (window.ANALYSIS_DATA && window.ANALYSIS_DATA.critics_count) || 0;
+        var startedAt = Date.now();
         ANALYSIS_POLL_TIMER = setInterval(function() {
-          loadLatestAnalysis();
-        }, 60000);
-        setTimeout(function() {
-          document.getElementById('analysisRunBtn').disabled = false;
-        }, 90000);
+          var elapsed = Math.round((Date.now() - startedAt) / 1000);
+          updateCriticsProgressBanner(elapsed);
+          /* Проверяем cache через GET endpoint — если свежий результат пришёл */
+          fetch('/api/critics?chapter_id=' + encodeURIComponent(CURRENT_CHAPTER))
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(d) {
+              if (!d) return;
+              var newCount = d.critics_count || (d.critics ? d.critics.length : 0);
+              /* Если стал больше чем был при старте — результат пришёл */
+              if (newCount > baselineCount) {
+                clearInterval(ANALYSIS_POLL_TIMER);
+                ANALYSIS_POLL_TIMER = null;
+                hideCriticsProgressBanner();
+                setAnalysisStatus('done', 'Готово · ' + newCount + ' критиков');
+                document.getElementById('analysisRunBtn').disabled = false;
+                toast('✅ Критики готовы: ' + newCount + ' оценок', 5000);
+                loadLatestAnalysis();
+              }
+            })
+            .catch(function() {});
+          /* Hard cap 10 мин */
+          if (elapsed > 600) {
+            clearInterval(ANALYSIS_POLL_TIMER);
+            ANALYSIS_POLL_TIMER = null;
+            hideCriticsProgressBanner();
+            setAnalysisStatus('error', 'таймаут 10мин');
+            document.getElementById('analysisRunBtn').disabled = false;
+          }
+        }, 20000);  /* 20 сек, не 60 */
+        /* Первый poll сразу */
+        setTimeout(function() { loadLatestAnalysis(); }, 25000);
       })
       .catch(function(e) {
         setAnalysisStatus('error', 'сеть');
         document.getElementById('analysisRunBtn').disabled = false;
       });
+  }
+
+  function showCriticsProgressBanner() {
+    var host = document.getElementById('analysisFixes') || document.getElementById('analysisPanel');
+    if (!host) return;
+    var existing = document.getElementById('criticsProgressBanner');
+    if (existing) existing.remove();
+    var banner = document.createElement('div');
+    banner.id = 'criticsProgressBanner';
+    banner.style.cssText = 'background:linear-gradient(135deg,#dbeafe,#bfdbfe);border:2px solid #3b82f6;border-radius:10px;padding:14px 18px;margin:0 0 14px 0;display:flex;align-items:center;gap:14px;';
+    banner.innerHTML =
+      '<div class="critics-spinner" style="width:24px;height:24px;border:3px solid #93c5fd;border-top-color:#1e40af;border-radius:50%;animation:critics-spin 0.8s linear infinite;"></div>' +
+      '<div style="flex:1;">' +
+        '<div style="font-weight:600;color:#1e40af;font-size:14px;">Критики думают…</div>' +
+        '<div id="criticsProgressText" style="font-size:12px;color:#1e3a8a;margin-top:2px;">Прошло: 0с / ожидание ~3-5 мин · можно закрыть страницу, результат сохранится</div>' +
+      '</div>';
+    /* Inject spinner keyframes if not yet */
+    if (!document.getElementById('critics-spin-style')) {
+      var st = document.createElement('style');
+      st.id = 'critics-spin-style';
+      st.textContent = '@keyframes critics-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
+      document.head.appendChild(st);
+    }
+    host.insertBefore(banner, host.firstChild);
+  }
+  function updateCriticsProgressBanner(elapsed) {
+    var t = document.getElementById('criticsProgressText');
+    if (!t) return;
+    var mins = Math.floor(elapsed / 60);
+    var secs = elapsed % 60;
+    var fmt = (mins > 0 ? mins + 'м ' : '') + secs + 'с';
+    t.textContent = 'Прошло: ' + fmt + ' / ожидание ~3-5 мин · можно закрыть страницу, результат сохранится';
+  }
+  function hideCriticsProgressBanner() {
+    var b = document.getElementById('criticsProgressBanner');
+    if (b) b.remove();
   }
 
   function startPersonas() {
