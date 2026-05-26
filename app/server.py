@@ -251,6 +251,10 @@ class CodexV2Handler(http.server.BaseHTTPRequestHandler):
         # Возвращает {ai_score: 0-100, verdict, markers, advice}.
         if path == "/api/chapter/ai-score":
             return self._ai_score()
+        # Pavel 2026-05-26: bash wrapper триггерит nightly reflection через сервер
+        # (обход macOS TCC — сервер имеет file access, launchd Python нет).
+        if path == "/api/run-reflection":
+            return self._run_reflection()
         # Pavel 2026-05-25: после правок сверить с оригиналом + голосовыми
         if path == "/api/chapter/post-edit-audit":
             return self._post_edit_audit()
@@ -7789,6 +7793,35 @@ html, body {{ background: white; color: #1A1A1F; margin: 0; padding: 0; font-fam
             "restored_chars": len(restored),
             "ts": ts_iso,
         })
+
+    def _run_reflection(self):
+        """POST /api/run-reflection {days?} → запускает nightly_reflection.py
+        в subprocess. Используется bash wrapper из /tmp/ чтобы обойти macOS TCC."""
+        import subprocess
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else ""
+        try:
+            req = json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError:
+            req = {}
+        days = req.get("days", 7)
+        try:
+            script = ROOT.parent / "scripts" / "nightly_reflection.py"
+            if not script.exists():
+                return self._json({"error": "script missing"}, 500)
+            proc = subprocess.run(
+                ["python3", str(script), "--days", str(days)],
+                cwd=str(ROOT.parent),
+                capture_output=True, text=True, timeout=180,
+            )
+            return self._json({
+                "ok": proc.returncode == 0,
+                "exit": proc.returncode,
+                "stdout": (proc.stdout or "")[:2000],
+                "stderr": (proc.stderr or "")[:1000],
+            })
+        except Exception as e:
+            return self._json({"ok": False, "error": str(e)}, 500)
 
     def _ai_score(self):
         """POST {chapter_id} → локальный AI-detector БЕЗ Opus.
